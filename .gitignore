@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+supabase/.branches/
+supabase/.temp/
+.env
+.env.*
+!.env.example
+*.log
