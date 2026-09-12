@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { resolveCatalogId } from '../common/database/catalog-slug.js';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { throwSupabaseError } from '../common/database/supabase-error.js';
 import { Database, Json } from '../database/database.types.js';
 import { SupabaseService } from '../database/supabase.service.js';
@@ -9,6 +10,7 @@ import {
 } from './dto/replace-teacher-collections.dto.js';
 import { SearchTeachersDto } from './dto/search-teachers.dto.js';
 import { UpdateTeacherDto } from './dto/update-teacher.dto.js';
+import { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 
 const PUBLIC_TEACHER_SELECT = `
   id, slug, headline, bio, hourly_price, currency, years_experience,
@@ -27,18 +29,34 @@ export type TeacherOnboarding = Record<string, unknown> & {
   id: string;
   user_id: string;
 };
+export type TeacherReviewDetails = TeacherProfile & {
+  profile: {
+    first_name: string;
+    last_name: string;
+    contact_email: string | null;
+    phone: string | null;
+  };
+};
 
 @Injectable()
 export class TeachersRepository {
   constructor(private readonly supabase: SupabaseService) {}
 
+  async resolveSearchSlugs(query: SearchTeachersDto): Promise<SearchTeachersDto> {
+    const [subjectId, cityId] = await Promise.all([
+      resolveCatalogId(this.supabase.client, 'subjects', query.subjectSlug, query.subjectId),
+      resolveCatalogId(this.supabase.client, 'cities', query.citySlug, query.cityId),
+    ]);
+    return { ...query, subjectId, cityId };
+  }
+
   async searchCandidates(
     query: SearchTeachersDto,
     limit: number,
     offset: number,
-  ): Promise<TeacherProfile[]> {
+  ): Promise<Database['public']['Functions']['search_teacher_candidates_v2']['Returns']> {
     const { data, error } = await this.supabase.client.rpc(
-      'search_teacher_candidates',
+      'search_teacher_candidates_v2',
       {
         p_subject_id: query.subjectId,
         p_level_id: query.levelId,
@@ -47,6 +65,9 @@ export class TeachersRepository {
         p_in_person_ok: query.inPersonOk,
         p_budget_min: query.budgetMin,
         p_budget_max: query.budgetMax,
+        p_verified_only: query.verifiedOnly,
+        p_rating_min: query.ratingMin,
+        p_sort: query.sort,
         p_limit: limit,
         p_offset: offset,
       },
@@ -54,6 +75,25 @@ export class TeachersRepository {
 
     if (error) throwSupabaseError(error, 'Failed to search teachers');
     return data;
+  }
+
+  async countCandidates(query: SearchTeachersDto): Promise<number> {
+    const { data, error } = await this.supabase.client.rpc(
+      'count_teacher_candidates_v2',
+      {
+        p_subject_id: query.subjectId,
+        p_level_id: query.levelId,
+        p_city_id: query.cityId,
+        p_online_ok: query.onlineOk,
+        p_in_person_ok: query.inPersonOk,
+        p_budget_min: query.budgetMin,
+        p_budget_max: query.budgetMax,
+        p_verified_only: query.verifiedOnly,
+        p_rating_min: query.ratingMin,
+      },
+    );
+    if (error) throwSupabaseError(error, 'Failed to count teachers');
+    return Number(data);
   }
 
   async findPublicByIds(ids: string[]): Promise<PublicTeacher[]> {
@@ -98,7 +138,7 @@ export class TeachersRepository {
       .select(`
         *,
         profile:profiles!teacher_profiles_user_id_fkey(
-          first_name, last_name, phone, avatar_path, role
+          first_name, last_name, phone, contact_email, avatar_path, role, city_id
         ),
         subjects:teacher_subjects(subject_id, experience_years, description),
         levels:teacher_levels(level_id),
@@ -138,6 +178,42 @@ export class TeachersRepository {
     return data[0];
   }
 
+  async submitForReview(
+    teacherId: string,
+    userId: string,
+  ): Promise<TeacherProfile> {
+    const { data, error } = await this.supabase.client.rpc(
+      'submit_teacher_for_review',
+      { p_teacher_id: teacherId, p_user_id: userId },
+    );
+    if (error) throwSupabaseError(error, 'Failed to submit teacher for review');
+    return data[0];
+  }
+
+  async submitOnboarding(userId: string, dto: SubmitOnboardingDto): Promise<TeacherProfile> {
+    const { data, error } = await this.supabase.client.rpc('submit_teacher_onboarding', {
+      p_user_id: userId,
+      p_form: JSON.parse(JSON.stringify(dto)) as Json,
+    });
+    if (error) throwSupabaseError(error, 'לא הצלחנו לשלוח את הפרופיל. החשבון לא שונה; בדקו את הפרטים ונסו שוב.');
+    return data[0];
+  }
+
+  async findReviewDetails(teacherId: string): Promise<TeacherReviewDetails> {
+    const { data, error } = await this.supabase.client
+      .from('teacher_profiles')
+      .select(`
+        *,
+        profile:profiles!teacher_profiles_user_id_fkey(
+          first_name, last_name, contact_email, phone
+        )
+      `)
+      .eq('id', teacherId)
+      .single();
+    if (error) throwSupabaseError(error, 'Failed to load teacher review details');
+    return data as unknown as TeacherReviewDetails;
+  }
+
   async updateOwned(
     teacherId: string,
     userId: string,
@@ -171,11 +247,11 @@ export class TeachersRepository {
   }
 
   async replaceSubjects(teacherId: string, dto: ReplaceTeacherSubjectsDto) {
-    const subjects = dto.subjects.map((subject) => ({
-      subject_id: subject.subjectId,
+    const subjects = await Promise.all(dto.subjects.map(async (subject) => ({
+      subject_id: await resolveCatalogId(this.supabase.client, 'subjects', subject.subjectSlug, subject.subjectId),
       experience_years: subject.experienceYears ?? null,
       description: subject.description?.trim() || null,
-    }));
+    })));
     const { data, error } = await this.supabase.client.rpc(
       'replace_teacher_subjects',
       { p_teacher_id: teacherId, p_subjects: subjects as Json },
@@ -197,20 +273,18 @@ export class TeachersRepository {
     teacherId: string,
     dto: ReplaceTeacherServiceAreasDto,
   ) {
+    if (dto.cityIds !== undefined && dto.citySlugs !== undefined) {
+      throw new BadRequestException('Provide citySlugs or cityIds, not both');
+    }
+    const cityIds = dto.citySlugs === undefined ? dto.cityIds : await Promise.all(
+      dto.citySlugs.map((slug) => resolveCatalogId(this.supabase.client, 'cities', slug)),
+    );
     const { data, error } = await this.supabase.client.rpc(
       'replace_teacher_service_areas',
-      { p_teacher_id: teacherId, p_city_ids: dto.cityIds },
+      { p_teacher_id: teacherId, p_city_ids: cityIds as number[] },
     );
     if (error) throwSupabaseError(error, 'Failed to replace service areas');
     return data;
   }
 
-  async publish(teacherId: string, userId: string): Promise<TeacherProfile> {
-    const { data, error } = await this.supabase.client.rpc('publish_teacher', {
-      p_teacher_id: teacherId,
-      p_user_id: userId,
-    });
-    if (error) throwSupabaseError(error, 'Teacher profile is incomplete');
-    return data[0];
-  }
 }

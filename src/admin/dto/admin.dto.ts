@@ -1,5 +1,20 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  MinLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Database } from '../../database/database.types.js';
 
 type ProfileStatus = Database['public']['Enums']['teacher_profile_status'];
@@ -61,4 +76,41 @@ export class ListAdminReviewsDto {
 export class ModerateReviewDto {
   @IsIn(['published', 'rejected'])
   status: Extract<ReviewStatus, 'published' | 'rejected'>;
+}
+
+export class CatalogItemDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(160)
+  name_he: string;
+
+  @IsString()
+  @MaxLength(160)
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+  slug: string;
+}
+
+export class ReplaceProfessionsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => CatalogItemDto)
+  professions: CatalogItemDto[];
+}
+
+export class ReplaceCitiesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => CatalogItemDto)
+  cities: CatalogItemDto[];
+}
+
+export class RejectTeacherDto {
+  @IsString()
+  @MinLength(5)
+  @MaxLength(2000)
+  reason: string;
 }

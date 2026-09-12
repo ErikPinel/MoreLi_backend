@@ -8,7 +8,7 @@ This document is the operational reference for the Morali backend. It describes 
 React
   |  sign in / refresh session
   v
-Supabase Auth
+Clerk
   |  access token
   v
 React -- Authorization: Bearer <JWT> --> NestJS
@@ -23,9 +23,10 @@ React -- Authorization: Bearer <JWT> --> NestJS
 
 Rules:
 
-- React may use Supabase Auth, but it does not query application tables directly.
-- React sends its Supabase access token to NestJS in the `Authorization` header.
-- NestJS verifies the token and owns authorization and business logic.
+- React uses Clerk for authentication and does not query application tables directly.
+- React sends its Clerk session token to NestJS in the `Authorization` header.
+- NestJS verifies the Clerk token, resolves its subject to an internal UUID profile, and owns authorization and business logic.
+- Legacy Supabase access tokens remain accepted while existing users transition.
 - NestJS repositories own all application database queries.
 - The publishable key may be exposed to a browser. The secret key, personal access token, and database password must never be exposed or logged.
 - Schema changes are SQL migrations. Supabase Studio is for inspection, not untracked production schema edits.
@@ -34,13 +35,23 @@ Rules:
 
 Project reference: `whzrmgntqsinkxfqymqz`.
 
-The hosted deployment contains:
+Current release update (2026-09-12): migrations through
+`20260912210000_no_payment_mvp_delivery` are applied and ledgered. This adds
+private `email_outbox` and `teacher_review_audit`, review reasons, consent timestamp,
+and leased delivery/admin decision functions. Outbox existence, claim RPC, and RLS
+were verified after deployment. Existing consent timestamps remain null.
+The active catalogs now contain 952 professions and 1,174 cities from local source
+files; slug upserts preserve IDs and coordinates. The initial counts below are
+historical baseline counts, not current inventory. Use
+[the rollout](PRODUCTION_ROLLOUT.md) for current release/retention requirements.
 
-- 15 application tables
+The initial hosted deployment contained:
+
+- 16 application tables
 - 8 PostgreSQL enums
-- 15 RLS-enabled application tables
+- 16 RLS-enabled application tables
 - 0 table grants to `anon` or `authenticated`
-- 1 `auth.users` profile trigger
+- 2 `auth.users` profile lifecycle triggers
 - 2 private Storage buckets
 - 13 seeded subjects
 - 6 seeded levels
@@ -60,10 +71,18 @@ The applied migration ledger contains:
 | `20260912003000` | `fix_published_teacher_integrity_ambiguity` |
 | `20260912004500` | `fix_match_request_status_type` |
 | `20260912010000` | `secure_review_aggregate_trigger` |
+| `20260912011500` | `clerk_identity_bridge` |
+| `20260912143000` | `teacher_search_v2` |
+| `20260912180000` | `email_review_and_lesson_requests` |
+| `20260912181000` | `remove_direct_teacher_publish` |
+| `20260912183000` | `require_tutor_contact_and_city` |
+| `20260912190000` | `replace_professions` |
+| `20260912191000` | `fix_replace_professions_safe_update` |
+| `20260912210000` | `no_payment_mvp_delivery` |
 
-The migrations provide 15 service-role business RPCs and nine business
-invariant triggers. Browser roles have no table grants and no execute grants on
-these functions.
+Business RPCs and invariant triggers are service-role-only. Browser roles have
+no table grants and no execute grants on these functions. Use the migration files
+and deployed schema for current object inventory rather than the old baseline counts.
 
 ## Environment variables
 
@@ -78,6 +97,8 @@ Runtime variables used by NestJS:
 | `TRUST_PROXY` | Reverse-proxy trust toggle | No |
 | `RATE_LIMIT_WINDOW_MS` | Global rate-limit window | No |
 | `RATE_LIMIT_MAX` | Requests allowed per IP/window | No |
+| `CLERK_ISSUER` | Trusted Clerk JWT issuer | No |
+| `CLERK_SECRET_KEY` | Server-verified primary identity email and deletion | Yes |
 
 Provisioning-only variables:
 
@@ -134,15 +155,20 @@ The CLI is installed locally, so use `npx supabase ...` or an npm script. Bare `
 
 ## Authentication flow
 
-1. React signs in through Supabase Auth.
-2. Supabase returns an access token.
-3. React sends `Authorization: Bearer <access-token>` to NestJS.
+1. React signs in through Clerk.
+2. Clerk returns a session token.
+3. React sends `Authorization: Bearer <session-token>` to NestJS.
 4. The global `AuthGuard` checks for `@Public()`.
-5. The guard calls `supabase.auth.getClaims(accessToken)`, which verifies the JWT against the project's signing keys.
-6. The normalized JWT subject is attached to the Express request as `authUser.sub`.
-7. `@CurrentUser()` returns that verified identity.
-8. `RolesGuard` loads the authoritative application role from `profiles`.
-9. Controllers pass the verified identity into services; services enforce permissions before repositories mutate data.
+5. The guard verifies Clerk JWTs against the issuer's public JWKS, including issuer and authorized-party checks.
+6. The service-role-only `resolve_external_identity` RPC maps the Clerk subject to an internal UUID, provisioning a profile on first use.
+7. The internal UUID is attached to the Express request as `authUser.sub`.
+8. `@CurrentUser()` returns that verified identity.
+9. `RolesGuard` loads the authoritative application role from `profiles`.
+10. Controllers pass the verified identity into services; services enforce permissions before repositories mutate data.
+
+For transition compatibility, non-Clerk bearer tokens are verified with
+`supabase.auth.getClaims()`. Their UUID subject is used directly, so existing
+Supabase Auth users and hosted e2e tests continue to work.
 
 Example protected endpoint:
 
@@ -155,7 +181,8 @@ getMe(@CurrentUser() user: AuthUser) {
 
 Only health checks, public taxonomy reads, public teacher discovery, and intentionally anonymous entry points should use `@Public()`.
 
-The request context also contains a user-scoped Supabase client. Morali currently revokes application-table grants from `authenticated`, so application repositories use the server client and authorization remains in NestJS. Do not assume RLS will protect a query made with the secret client.
+Application repositories use the server client and authorization remains in
+NestJS and ownership-sensitive RPCs. Do not assume RLS protects a service-key query.
 
 ## MVP business contracts
 
@@ -170,7 +197,8 @@ passes only the verified JWT subject into ownership-sensitive functions.
 | `replace_teacher_levels` | Replaces the full active-level collection atomically. |
 | `replace_teacher_service_areas` | Replaces the full active-city collection atomically. |
 | `replace_teacher_availability` | Replaces all slots atomically; a trigger rejects active overlaps. |
-| `publish_teacher` | Locks the owned profile and checks identity, avatar, biography, price, modes, subjects, levels, availability/mode definition, and service area. |
+| `submit_teacher_for_review` | Locks the owned profile, checks identity, contact email, avatar, biography, price, modes, subjects, levels, and service area, then moves it to `pending`. |
+| `approve_teacher_review` | Publishes only a pending profile, marks it verified, and emits the approval notification. |
 | `search_teacher_candidates` | Returns published teachers satisfying subject, level, mode/location, and budget hard filters. |
 | `persist_matches` | Rechecks every hard filter, replaces ranks atomically, and moves `open` to `matched`. |
 | `create_inquiry` | Locks a published teacher, verifies optional matched-request ownership, inserts the inquiry, and marks the match contacted. |
@@ -640,7 +668,7 @@ After a hosted migration:
 Public reads are limited to health, active taxonomies, published teacher
 profiles, availability/reviews, public avatar URLs, and anonymous
 `POST /api/matching/preview`. All write operations and all student/teacher-owned
-collections require a verified Supabase access token.
+collections require a verified Clerk token or a legacy Supabase access token.
 
 The standard path remains:
 
@@ -658,6 +686,8 @@ reads are restricted to paths beginning with the verified user's UUID. Teacher
 avatar URLs are signed for one hour only after resolving a published profile.
 
 Self-service account deletion first moves any teacher profile out of the
-published state, removes the user's objects through the Storage API, and then
-deletes the Supabase Auth identity. Database cascades remove application-owned
-rows; the ordering also supports Auth-owned Storage objects and safe retries.
+published state and removes the user's objects through the Storage API. For a
+Clerk-linked account it deletes the internal profile and cascaded application
+data; the Clerk identity is managed through Clerk's user controls. For a legacy
+Supabase account it deletes the Supabase Auth identity, and database cascades
+remove application-owned rows. The ordering supports safe retries.

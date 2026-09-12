@@ -40,6 +40,7 @@ export class RolesGuard implements CanActivate {
     if (!roles.includes(data.role)) {
       throw new ForbiddenException('This account role cannot perform that action');
     }
+    user.role = data.role;
     return true;
   }
 }

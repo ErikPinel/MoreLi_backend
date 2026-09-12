@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
-import { NextFunction, Request, Response } from 'express';
+import { json, NextFunction, Request, Response } from 'express';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor.js';
 
 type TracedRequest = Request & { requestId?: string };
@@ -35,6 +35,12 @@ export function configureApp(
   app.enableCors({
     origin: configService.getOrThrow<string[]>('app.corsOrigins'),
   });
+  app.use(
+    ['/api/admin/professions/bulk', '/api/admin/professions/replace',
+      '/api/admin/cities/bulk', '/api/admin/cities/replace'],
+    json({ limit: '2mb' }),
+  );
+  app.use(json());
   app.useGlobalPipes(
     new ValidationPipe({
       forbidNonWhitelisted: true,

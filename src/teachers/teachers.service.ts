@@ -6,6 +6,7 @@ import {
 } from './dto/replace-teacher-collections.dto.js';
 import { SearchTeachersDto } from './dto/search-teachers.dto.js';
 import { UpdateTeacherDto } from './dto/update-teacher.dto.js';
+import { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import {
   PublicTeacher,
   TeacherOnboarding,
@@ -18,22 +19,34 @@ export type TeacherSearchResult = {
   page: number;
   limit: number;
   hasMore: boolean;
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    pageCount: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
 };
 
 @Injectable()
 export class TeachersService {
-  constructor(private readonly teachersRepository: TeachersRepository) {}
+  constructor(
+    private readonly teachersRepository: TeachersRepository,
+  ) {}
 
   async search(query: SearchTeachersDto): Promise<TeacherSearchResult> {
     this.validateSearch(query);
+    if (query.subjectSlug !== undefined || query.citySlug !== undefined) {
+      query = await this.teachersRepository.resolveSearchSlugs(query);
+    }
     const offset = (query.page - 1) * query.limit;
-    const candidates = await this.teachersRepository.searchCandidates(
-      query,
-      query.limit + 1,
-      offset,
-    );
-    const hasMore = candidates.length > query.limit;
-    const pageCandidates = candidates.slice(0, query.limit);
+    const [pageCandidates, total] = await Promise.all([
+      this.teachersRepository.searchCandidates(query, query.limit, offset),
+      this.teachersRepository.countCandidates(query),
+    ]);
+    const pageCount = Math.ceil(total / query.limit);
+    const hasMore = query.page < pageCount;
     const teachers = await this.teachersRepository.findPublicByIds(
       pageCandidates.map((teacher) => teacher.id),
     );
@@ -46,6 +59,14 @@ export class TeachersService {
       page: query.page,
       limit: query.limit,
       hasMore,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        pageCount,
+        hasNextPage: hasMore,
+        hasPreviousPage: query.page > 1,
+      },
     };
   }
 
@@ -77,8 +98,21 @@ export class TeachersService {
     return this.teachersRepository.updateOwned(teacher.id, userId, dto);
   }
 
+  submitOnboarding(userId: string, dto: SubmitOnboardingDto): Promise<TeacherProfile> {
+    if (!dto.teachesOnline && !dto.teachesInPerson) throw new BadRequestException('בחרו לפחות אופן לימוד אחד.');
+    if (dto.teachesInPerson && !dto.citySlugs.length) throw new BadRequestException('בחרו עיר לשיעורים פרונטליים.');
+    if (!dto.avatarPath.startsWith(`${userId}/`)) throw new BadRequestException('תמונת הפרופיל חייבת להיות שייכת לחשבון שלך.');
+    for (const slot of dto.slots) {
+      if (slot.startTime >= slot.endTime || (slot.timezone && slot.timezone !== 'Asia/Jerusalem') || slot.isActive === false) {
+        throw new BadRequestException('יש לבחור חלון זמן פעיל שבו שעת הסיום מאוחרת משעת ההתחלה, לפי שעון ישראל.');
+      }
+    }
+    return this.teachersRepository.submitOnboarding(userId, dto);
+  }
+
   async replaceSubjects(userId: string, dto: ReplaceTeacherSubjectsDto) {
-    this.assertUnique(dto.subjects.map((subject) => subject.subjectId), 'subjects');
+    const ids = dto.subjects.flatMap((subject) => subject.subjectId === undefined ? [] : [subject.subjectId]);
+    this.assertUnique(ids, 'subjects');
     const teacher = await this.findMe(userId);
     return this.teachersRepository.replaceSubjects(teacher.id, dto);
   }
@@ -96,9 +130,18 @@ export class TeachersService {
     return this.teachersRepository.replaceServiceAreas(teacher.id, dto);
   }
 
-  async publish(userId: string): Promise<TeacherProfile> {
+  async submitForReview(userId: string): Promise<TeacherProfile> {
     const teacher = await this.findMe(userId);
-    return this.teachersRepository.publish(teacher.id, userId);
+    if (
+      teacher.profile_status === 'pending' ||
+      teacher.profile_status === 'published'
+    ) {
+      return teacher as TeacherProfile;
+    }
+    return this.teachersRepository.submitForReview(
+      teacher.id,
+      userId,
+    );
   }
 
   private validateSearch(query: SearchTeachersDto): void {

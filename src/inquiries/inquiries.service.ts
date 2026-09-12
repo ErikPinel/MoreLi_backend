@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import {
   CreateInquiryDto,
   ListInquiriesDto,
@@ -10,7 +11,10 @@ import { InquiriesRepository, Inquiry } from './inquiries.repository.js';
 export class InquiriesService {
   constructor(private readonly inquiriesRepository: InquiriesRepository) {}
 
-  create(userId: string, dto: CreateInquiryDto): Promise<Inquiry> {
+  async create(userId: string, dto: CreateInquiryDto): Promise<Inquiry> {
+    if (dto.contactSharingConsent !== true)
+      throw new BadRequestException('Contact sharing consent is required');
+    this.validateSchedule(dto);
     return this.inquiriesRepository.create(userId, dto);
   }
 
@@ -38,11 +42,30 @@ export class InquiriesService {
     return this.inquiriesRepository.markViewed(inquiryId, userId);
   }
 
-  respond(
+  async respond(
     userId: string,
     inquiryId: string,
     dto: RespondInquiryDto,
   ): Promise<Inquiry> {
     return this.inquiriesRepository.respond(inquiryId, userId, dto);
+  }
+
+  private validateSchedule(dto: CreateInquiryDto): void {
+    if (!dto.requestedStartAt && !dto.requestedEndAt && !dto.lessonMode) return;
+    if (!dto.requestedStartAt || !dto.requestedEndAt || !dto.lessonMode) {
+      throw new BadRequestException(
+        'Lesson time and mode must be provided together',
+      );
+    }
+    const start = new Date(dto.requestedStartAt);
+    const end = new Date(dto.requestedEndAt);
+    if (start <= new Date() || end <= start) {
+      throw new BadRequestException(
+        'Requested lesson time must be in the future',
+      );
+    }
+    if (end.getTime() - start.getTime() > 4 * 60 * 60 * 1000) {
+      throw new BadRequestException('Lesson request cannot exceed four hours');
+    }
   }
 }

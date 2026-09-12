@@ -1,8 +1,12 @@
 # Morali API implementation plan
 
+Current no-payment launch requirements and remaining gates supersede this historical
+implementation plan: [PRODUCTION_ROLLOUT.md](PRODUCTION_ROLLOUT.md) and
+[source of truth](../PRODUCTION_MVP_PLAN.md). No payment integration is required.
+
 ## Architecture rule
 
-React uses Supabase only for authentication. All application data access goes through this NestJS API:
+React uses Clerk only for authentication. All application data access goes through this NestJS API and remains in Supabase:
 
 ```text
 React -> HTTPS -> NestJS -> Supabase PostgreSQL / Auth / Storage
@@ -26,6 +30,7 @@ Controller -> Service -> Repository -> Supabase
 - [x] Server-side Supabase client in `DatabaseModule`
 - [x] Global DTO validation, `/api` prefix, and CORS
 - [x] Supabase access-token verification with `auth.getClaims()`
+- [x] Clerk JWT verification and external-subject to internal-UUID profile mapping
 - [x] `@Public()` and `@CurrentUser()` decorators
 - [x] Profile-backed student, teacher, and admin role authorization
 - [x] Initial domain module boundaries
@@ -187,7 +192,10 @@ PUT    /teachers/me/levels
 PUT    /teachers/me/service-areas
 GET    /teachers/me/schedule
 PUT    /teachers/me/availability
-POST   /teachers/me/publish
+POST   /teachers/me/submit-review
+
+GET    /teacher-approvals/preview?token=<signed token>
+POST   /teacher-approvals/approve
 
 POST   /requests
 GET    /requests

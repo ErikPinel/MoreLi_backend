@@ -17,7 +17,10 @@ export class UsersService {
     return this.usersRepository.update(userId, dto);
   }
 
-  deleteMe(userId: string): Promise<void> {
-    return this.usersRepository.deleteAccount(userId);
+  deleteMe(
+    userId: string,
+    identityProvider: 'clerk' | 'supabase',
+  ): Promise<void> {
+    return this.usersRepository.deleteAccount(userId, identityProvider);
   }
 }

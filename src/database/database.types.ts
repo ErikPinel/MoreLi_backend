@@ -6,6 +6,25 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export type EmailJob = {
+  id: string
+  event_key: string
+  event_type: string
+  entity_id: string
+  recipient_id: string | null
+  audience: 'user' | 'student' | 'teacher' | 'admin'
+  recipient_email: string | null
+  payload: Json
+  status: 'pending' | 'processing' | 'sent' | 'dead'
+  attempts: number
+  available_at: string
+  locked_until: string | null
+  lease_token: string | null
+  last_error: string | null
+  created_at: string
+  sent_at: string | null
+}
+
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
@@ -14,6 +33,18 @@ export type Database = {
   }
   public: {
     Tables: {
+      email_outbox: {
+        Row: EmailJob
+        Insert: Omit<EmailJob, 'id'> & { id?: string }
+        Update: Partial<EmailJob>
+        Relationships: []
+      }
+      teacher_review_audit: {
+        Row: { id: string; teacher_id: string; actor_id: string | null; previous_status: string; next_status: string; reason: string | null; created_at: string }
+        Insert: { teacher_id: string; actor_id?: string | null; previous_status: string; next_status: string; reason?: string | null }
+        Update: { reason?: string | null }
+        Relationships: []
+      }
       cities: {
         Row: {
           created_at: string
@@ -49,6 +80,35 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      external_identities: {
+        Row: {
+          created_at: string
+          profile_id: string
+          provider: string
+          subject: string
+        }
+        Insert: {
+          created_at?: string
+          profile_id: string
+          provider: string
+          subject: string
+        }
+        Update: {
+          created_at?: string
+          profile_id?: string
+          provider?: string
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_identities_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       favorites: {
         Row: {
@@ -87,8 +147,11 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          lesson_mode: string | null
           message: string
           request_id: string | null
+          requested_end_at: string | null
+          requested_start_at: string | null
           responded_at: string | null
           status: Database["public"]["Enums"]["inquiry_status"]
           student_id: string
@@ -98,8 +161,11 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          lesson_mode?: string | null
           message: string
           request_id?: string | null
+          requested_end_at?: string | null
+          requested_start_at?: string | null
           responded_at?: string | null
           status?: Database["public"]["Enums"]["inquiry_status"]
           student_id: string
@@ -109,8 +175,11 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          lesson_mode?: string | null
           message?: string
           request_id?: string | null
+          requested_end_at?: string | null
+          requested_start_at?: string | null
           responded_at?: string | null
           status?: Database["public"]["Enums"]["inquiry_status"]
           student_id?: string
@@ -281,6 +350,8 @@ export type Database = {
       profiles: {
         Row: {
           avatar_path: string | null
+          city_id: number | null
+          contact_email: string | null
           created_at: string
           first_name: string
           id: string
@@ -291,6 +362,8 @@ export type Database = {
         }
         Insert: {
           avatar_path?: string | null
+          city_id?: number | null
+          contact_email?: string | null
           created_at?: string
           first_name?: string
           id: string
@@ -301,6 +374,8 @@ export type Database = {
         }
         Update: {
           avatar_path?: string | null
+          city_id?: number | null
+          contact_email?: string | null
           created_at?: string
           first_name?: string
           id?: string
@@ -309,7 +384,15 @@ export type Database = {
           role?: Database["public"]["Enums"]["user_role"]
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_city_id_fkey"
+            columns: ["city_id"]
+            isOneToOne: false
+            referencedRelation: "cities"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reviews: {
         Row: {
@@ -572,6 +655,7 @@ export type Database = {
       }
       teacher_profiles: {
         Row: {
+          review_reason: string | null
           average_rating: number
           bio: string
           claimed_at: string | null
@@ -724,18 +808,46 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      submit_teacher_onboarding: {
+        Args: { p_user_id: string; p_form: Json };
+        Returns: Database['public']['Tables']['teacher_profiles']['Row'][];
+      };
+      claim_email_jobs: { Args: { p_limit?: number }; Returns: EmailJob[] }
+      finish_email_job: { Args: { p_id: string; p_lease: string; p_success: boolean }; Returns: boolean }
+      reject_teacher_review: { Args: { p_teacher_id: string; p_actor_id: string; p_reason: string }; Returns: Database['public']['Tables']['teacher_profiles']['Row'][] }
+      approve_teacher_review_by_admin: { Args: { p_teacher_id: string; p_actor_id: string }; Returns: Database['public']['Tables']['teacher_profiles']['Row'][] }
+      count_teacher_candidates_v2: {
+        Args: {
+          p_budget_max?: number
+          p_budget_min?: number
+          p_city_id?: number
+          p_in_person_ok?: boolean
+          p_level_id?: number
+          p_online_ok?: boolean
+          p_rating_min?: number
+          p_subject_id?: number
+          p_verified_only?: boolean
+        }
+        Returns: number
+      }
       create_inquiry: {
         Args: {
+          p_lesson_mode?: string
           p_message: string
           p_request_id: string
+          p_requested_end_at?: string
+          p_requested_start_at?: string
           p_student_id: string
           p_teacher_id: string
         }
         Returns: {
           created_at: string
           id: string
+          lesson_mode: string | null
           message: string
           request_id: string | null
+          requested_end_at: string | null
+          requested_start_at: string | null
           responded_at: string | null
           status: Database["public"]["Enums"]["inquiry_status"]
           student_id: string
@@ -749,9 +861,19 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      resolve_external_identity: {
+        Args: {
+          p_first_name?: string
+          p_last_name?: string
+          p_provider: string
+          p_subject: string
+        }
+        Returns: string
+      }
       create_teacher_draft: {
         Args: { p_slug: string; p_terms_accepted: boolean; p_user_id: string }
         Returns: {
+          review_reason: string | null
           average_rating: number
           bio: string
           claimed_at: string | null
@@ -788,8 +910,11 @@ export type Database = {
         Returns: {
           created_at: string
           id: string
+          lesson_mode: string | null
           message: string
           request_id: string | null
+          requested_end_at: string | null
+          requested_start_at: string | null
           responded_at: string | null
           status: Database["public"]["Enums"]["inquiry_status"]
           student_id: string
@@ -833,6 +958,41 @@ export type Database = {
           p_verification_status?: Database["public"]["Enums"]["verification_status"]
         }
         Returns: {
+          review_reason: string | null
+          average_rating: number
+          bio: string
+          claimed_at: string | null
+          created_at: string
+          currency: string
+          headline: string
+          hourly_price: number
+          id: string
+          is_founder: boolean
+          profile_status: Database["public"]["Enums"]["teacher_profile_status"]
+          published_at: string | null
+          response_rate: number
+          response_time_minutes: number | null
+          review_count: number
+          slug: string
+          teaches_in_person: boolean
+          teaches_online: boolean
+          terms_accepted_at: string | null
+          updated_at: string
+          user_id: string
+          verification_status: Database["public"]["Enums"]["verification_status"]
+          years_experience: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "teacher_profiles"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      approve_teacher_review: {
+        Args: { p_teacher_id: string }
+        Returns: {
+          review_reason: string | null
           average_rating: number
           bio: string
           claimed_at: string | null
@@ -886,9 +1046,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      publish_teacher: {
+      submit_teacher_for_review: {
         Args: { p_teacher_id: string; p_user_id: string }
         Returns: {
+          review_reason: string | null
           average_rating: number
           bio: string
           claimed_at: string | null
@@ -980,6 +1141,14 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      replace_professions: {
+        Args: { p_professions: Json }
+        Returns: {
+          active_count: number
+          deleted_count: number
+          retained_inactive_count: number
+        }[]
+      }
       respond_to_inquiry: {
         Args: {
           p_inquiry_id: string
@@ -989,8 +1158,11 @@ export type Database = {
         Returns: {
           created_at: string
           id: string
+          lesson_mode: string | null
           message: string
           request_id: string | null
+          requested_end_at: string | null
+          requested_start_at: string | null
           responded_at: string | null
           status: Database["public"]["Enums"]["inquiry_status"]
           student_id: string
@@ -1015,6 +1187,52 @@ export type Database = {
           p_offset?: number
           p_online_ok?: boolean
           p_subject_id?: number
+        }
+        Returns: {
+          average_rating: number
+          bio: string
+          claimed_at: string | null
+          created_at: string
+          currency: string
+          headline: string
+          hourly_price: number
+          id: string
+          is_founder: boolean
+          profile_status: Database["public"]["Enums"]["teacher_profile_status"]
+          published_at: string | null
+          response_rate: number
+          response_time_minutes: number | null
+          review_count: number
+          slug: string
+          teaches_in_person: boolean
+          teaches_online: boolean
+          terms_accepted_at: string | null
+          updated_at: string
+          user_id: string
+          verification_status: Database["public"]["Enums"]["verification_status"]
+          years_experience: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "teacher_profiles"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      search_teacher_candidates_v2: {
+        Args: {
+          p_budget_max?: number
+          p_budget_min?: number
+          p_city_id?: number
+          p_in_person_ok?: boolean
+          p_level_id?: number
+          p_limit?: number
+          p_offset?: number
+          p_online_ok?: boolean
+          p_rating_min?: number
+          p_sort?: string
+          p_subject_id?: number
+          p_verified_only?: boolean
         }
         Returns: {
           average_rating: number

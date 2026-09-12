@@ -125,13 +125,15 @@ select
         'moderate_review',
         'moderate_teacher',
         'persist_matches',
-        'publish_teacher',
+        'approve_teacher_review',
+        'replace_professions',
         'replace_teacher_availability',
         'replace_teacher_levels',
         'replace_teacher_service_areas',
         'replace_teacher_subjects',
         'respond_to_inquiry',
         'search_teacher_candidates',
+        'submit_teacher_for_review',
         'submit_verified_review'
       )
   ) as business_function_count,
@@ -165,13 +167,15 @@ select
         'moderate_review',
         'moderate_teacher',
         'persist_matches',
-        'publish_teacher',
+        'approve_teacher_review',
+        'replace_professions',
         'replace_teacher_availability',
         'replace_teacher_levels',
         'replace_teacher_service_areas',
         'replace_teacher_subjects',
         'respond_to_inquiry',
         'search_teacher_candidates',
+        'submit_teacher_for_review',
         'submit_verified_review'
       )
   ) as browser_role_function_grant_count,
@@ -188,7 +192,14 @@ select
       '20260912001500',
       '20260912003000',
       '20260912004500',
-      '20260912010000'
+      '20260912010000',
+      '20260912011500',
+      '20260912143000',
+      '20260912180000',
+      '20260912181000',
+      '20260912183000',
+      '20260912190000',
+      '20260912191000'
     )
   ) as migration_count,
   (select count(*) from public.subjects) as subject_count,

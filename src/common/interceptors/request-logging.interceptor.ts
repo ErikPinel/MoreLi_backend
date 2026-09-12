@@ -26,7 +26,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
           JSON.stringify({
             requestId: request.requestId,
             method: request.method,
-            path: request.originalUrl,
+            path: request.path,
             statusCode: response.statusCode,
             durationMs: Date.now() - startedAt,
           }),

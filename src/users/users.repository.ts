@@ -1,3 +1,4 @@
+import { resolveCatalogId } from '../common/database/catalog-slug.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Database } from '../database/database.types.js';
 import { SupabaseService } from '../database/supabase.service.js';
@@ -25,7 +26,13 @@ export class UsersRepository {
     const updates: Database['public']['Tables']['profiles']['Update'] = {};
     if (dto.firstName !== undefined) updates.first_name = dto.firstName.trim();
     if (dto.lastName !== undefined) updates.last_name = dto.lastName.trim();
+    if (dto.contactEmail !== undefined) {
+      updates.contact_email = dto.contactEmail.trim().toLowerCase();
+    }
     if (dto.phone !== undefined) updates.phone = dto.phone.trim() || null;
+    if (dto.citySlug !== undefined || dto.cityId !== undefined) {
+      updates.city_id = await resolveCatalogId(this.supabase.client, 'cities', dto.citySlug, dto.cityId);
+    }
     if (dto.avatarPath !== undefined) {
       updates.avatar_path = dto.avatarPath.trim() || null;
     }
@@ -42,7 +49,10 @@ export class UsersRepository {
     return data;
   }
 
-  async deleteAccount(userId: string): Promise<void> {
+  async deleteAccount(
+    userId: string,
+    identityProvider: 'clerk' | 'supabase',
+  ): Promise<void> {
     const { error: unpublishError } = await this.supabase.client
       .from('teacher_profiles')
       .update({ profile_status: 'draft' })
@@ -60,6 +70,15 @@ export class UsersRepository {
           .remove(data.map((object) => `${userId}/${object.name}`));
         if (removeError) throw removeError;
       }
+    }
+
+    if (identityProvider === 'clerk') {
+      const { error: deleteProfileError } = await this.supabase.client
+        .from('profiles')
+        .delete()
+        .eq('id', userId);
+      if (deleteProfileError) throw deleteProfileError;
+      return;
     }
 
     const { error: deleteUserError } =

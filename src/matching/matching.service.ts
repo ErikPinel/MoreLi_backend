@@ -25,7 +25,7 @@ export class MatchingService {
 
   async preview(dto: CreateRequestDto): Promise<RankedTeacher[]> {
     this.requestsService.validate(dto);
-    return this.rank(dto);
+    return this.rank(await this.requestsRepository.resolveSlugs(dto));
   }
 
   async run(userId: string, requestId: string): Promise<RankedTeacher[]> {

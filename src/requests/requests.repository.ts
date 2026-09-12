@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { resolveCatalogId } from '../common/database/catalog-slug.js';
 import { throwSupabaseError } from '../common/database/supabase-error.js';
 import { Database } from '../database/database.types.js';
 import { SupabaseService } from '../database/supabase.service.js';
@@ -11,14 +12,24 @@ export type StudentRequest =
 export class RequestsRepository {
   constructor(private readonly supabase: SupabaseService) {}
 
+  async resolveSlugs(dto: CreateRequestDto) {
+    const [subjectId, cityId] = await Promise.all([
+      resolveCatalogId(this.supabase.client, 'subjects', dto.subjectSlug, dto.subjectId),
+      resolveCatalogId(this.supabase.client, 'cities', dto.citySlug, dto.cityId),
+    ]);
+    if (subjectId === undefined) throw new BadRequestException('A subject is required');
+    return { ...dto, subjectId, cityId };
+  }
+
   async create(userId: string, dto: CreateRequestDto): Promise<StudentRequest> {
+    const resolved = await this.resolveSlugs(dto);
     const { data, error } = await this.supabase.client
       .from('student_requests')
       .insert({
         student_id: userId,
-        subject_id: dto.subjectId,
+        subject_id: resolved.subjectId,
         level_id: dto.levelId ?? null,
-        city_id: dto.cityId ?? null,
+        city_id: resolved.cityId ?? null,
         online_ok: dto.onlineOk,
         in_person_ok: dto.inPersonOk,
         budget_min: dto.budgetMin ?? null,
@@ -39,12 +50,13 @@ export class RequestsRepository {
     requestId: string,
     dto: CreateRequestDto,
   ): Promise<StudentRequest> {
+    const resolved = await this.resolveSlugs(dto);
     const { data, error } = await this.supabase.client
       .from('student_requests')
       .update({
-        subject_id: dto.subjectId,
+        subject_id: resolved.subjectId,
         level_id: dto.levelId ?? null,
-        city_id: dto.cityId ?? null,
+        city_id: resolved.cityId ?? null,
         online_ok: dto.onlineOk,
         in_person_ok: dto.inPersonOk,
         budget_min: dto.budgetMin ?? null,

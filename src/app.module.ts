@@ -8,6 +8,7 @@ import { AvailabilityModule } from './availability/availability.module.js';
 import configuration from './config/configuration.js';
 import { envValidationSchema } from './config/env.validation.js';
 import { DatabaseModule } from './database/database.module.js';
+import { EmailModule } from './email/email.module.js';
 import { FavoritesModule } from './favorites/favorites.module.js';
 import { HealthModule } from './health/health.module.js';
 import { InquiriesModule } from './inquiries/inquiries.module.js';
@@ -31,6 +32,7 @@ import { UsersModule } from './users/users.module.js';
       validationSchema: envValidationSchema,
     }),
     DatabaseModule,
+    EmailModule,
     AuthModule,
     AdminModule,
     UsersModule,

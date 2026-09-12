@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -12,7 +13,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import type { AuthUser } from '../common/types/auth-user.type.js';
-import { ClaimTeacherDto } from './dto/claim-teacher.dto.js';
 import {
   ReplaceTeacherLevelsDto,
   ReplaceTeacherServiceAreasDto,
@@ -20,6 +20,7 @@ import {
 } from './dto/replace-teacher-collections.dto.js';
 import { SearchTeachersDto } from './dto/search-teachers.dto.js';
 import { UpdateTeacherDto } from './dto/update-teacher.dto.js';
+import { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
 import {
   PublicTeacher,
   TeacherOnboarding,
@@ -44,11 +45,8 @@ export class TeachersController {
   }
 
   @Post('me')
-  createDraft(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ClaimTeacherDto,
-  ): Promise<TeacherProfile> {
-    return this.teachersService.createDraft(user.sub, dto.acceptTerms);
+  createDraft(): never {
+    throw new BadRequestException('יש למלא את פרופיל ההוראה וללחוץ על שמירה ושליחה לבדיקה.');
   }
 
   @Patch('me')
@@ -58,6 +56,12 @@ export class TeachersController {
     @Body() dto: UpdateTeacherDto,
   ): Promise<TeacherProfile> {
     return this.teachersService.updateMe(user.sub, dto);
+  }
+
+  @Post('me/onboarding')
+  @Roles('student', 'teacher')
+  submitOnboarding(@CurrentUser() user: AuthUser, @Body() dto: SubmitOnboardingDto) {
+    return this.teachersService.submitOnboarding(user.sub, dto);
   }
 
   @Put('me/subjects')
@@ -87,10 +91,16 @@ export class TeachersController {
     return this.teachersService.replaceServiceAreas(user.sub, dto);
   }
 
+  @Post('me/submit-review')
+  @Roles('teacher')
+  submitForReview(@CurrentUser() user: AuthUser): Promise<TeacherProfile> {
+    return this.teachersService.submitForReview(user.sub);
+  }
+
   @Post('me/publish')
   @Roles('teacher')
-  publish(@CurrentUser() user: AuthUser): Promise<TeacherProfile> {
-    return this.teachersService.publish(user.sub);
+  publishCompatibility(@CurrentUser() user: AuthUser): Promise<TeacherProfile> {
+    return this.teachersService.submitForReview(user.sub);
   }
 
   @Public()

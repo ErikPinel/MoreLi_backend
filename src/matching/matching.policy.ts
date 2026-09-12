@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { TeacherProfile } from '../teachers/teachers.repository.js';
+import { Database } from '../database/database.types.js';
+
+type TeacherProfile = Database['public']['Functions']['search_teacher_candidates_v2']['Returns'][number];
 
 export type MatchScores = {
   teacher_id: string;

@@ -1,11 +1,24 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
   Max,
   Min,
 } from 'class-validator';
+
+export const teacherSearchSorts = [
+  'recommended',
+  'rating',
+  'price_asc',
+  'price_desc',
+] as const;
+export type TeacherSearchSort = (typeof teacherSearchSorts)[number];
 
 const toBoolean = ({ value }: { value: unknown }): unknown => {
   if (value === 'true') return true;
@@ -14,6 +27,18 @@ const toBoolean = ({ value }: { value: unknown }): unknown => {
 };
 
 export class SearchTeachersDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+  subjectSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+  citySlug?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -53,6 +78,22 @@ export class SearchTeachersDto {
   @IsInt()
   @Min(0)
   budgetMax?: number;
+
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  verifiedOnly = false;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  ratingMin?: number;
+
+  @IsOptional()
+  @IsIn(teacherSearchSorts)
+  sort: TeacherSearchSort = 'recommended';
 
   @IsOptional()
   @Type(() => Number)
