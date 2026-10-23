@@ -170,6 +170,15 @@ NodeNext checks. Do not replace the static import with `import = require`:
 TypeScript emits a `createRequire` alias that Vercel's tracer omitted, producing
 `Cannot find module 'helmet'` at runtime even though local compilation passed.
 
+The entrypoint must not top-level await `bootstrap()`. Vercel's Node adapter
+intercepts `Server.listen()` while importing the entrypoint and only starts the
+captured server after that import completes. Awaiting Nest's listen promise at
+module scope deadlocks startup. Bootstrap failures are explicitly logged and exit
+the process. Shutdown hooks are registered before listening, and email delivery
+starts once on the HTTP server's `listening` event: Vercel does not forward the
+original Nest listen callback, so code after `await app.listen()` is not a reliable
+hosted startup hook. Standalone Node operation keeps the same delivery timing.
+
 The ignored local `.env` file is not deployed. Configure the required variables
 from the configuration table in the backend Vercel project's Production environment
 and redeploy. Production validation requires the Supabase URL/public/secret keys,
