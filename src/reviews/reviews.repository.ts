@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { throwSupabaseError } from '../common/database/supabase-error.js';
 import { Database } from '../database/database.types.js';
 import { SupabaseService } from '../database/supabase.service.js';
@@ -12,16 +12,13 @@ export class ReviewsRepository {
   constructor(private readonly supabase: SupabaseService) {}
 
   async create(userId: string, dto: CreateReviewDto): Promise<Review> {
-    const { data, error } = await this.supabase.client.rpc(
-      'submit_verified_review',
-      {
-        p_student_id: userId,
-        p_inquiry_id: dto.inquiryId,
-        p_rating: dto.rating,
-        p_body: dto.body ?? '',
-      },
-    );
-    if (error) throwSupabaseError(error, 'Review is not eligible');
+    if (dto.teacherId && dto.inquiryId) throw new BadRequestException('בחרו מורה או פנייה, לא שניהם');
+    const request = dto.teacherId
+      ? this.supabase.client.rpc('submit_teacher_review', { p_student_id: userId, p_teacher_id: dto.teacherId, p_rating: dto.rating, p_body: dto.body ?? '' })
+      : dto.inquiryId ? this.supabase.client.rpc('submit_verified_review', { p_student_id: userId, p_inquiry_id: dto.inquiryId, p_rating: dto.rating, p_body: dto.body ?? '' }) : null;
+    if (!request) throw new BadRequestException('יש לבחור מורה לדירוג');
+    const { data, error } = await request;
+    if (error) throwSupabaseError(error, error.code === '23505' ? 'כבר קיים דירוג שלכם למורה. אפשר לערוך אותו דרך הביקורות שלי.' : 'לא ניתן לפרסם את הדירוג. בחרו מורה מפורסם שאינו אתם ודירוג בין 1 ל־5.');
     return data[0];
   }
 

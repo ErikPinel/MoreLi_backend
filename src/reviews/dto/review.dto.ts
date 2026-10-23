@@ -9,6 +9,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class UpdateReviewDto {
@@ -24,8 +25,13 @@ export class UpdateReviewDto {
 }
 
 export class CreateReviewDto extends UpdateReviewDto {
+  @ValidateIf((dto: CreateReviewDto) => dto.teacherId !== undefined || !dto.inquiryId)
   @IsUUID()
-  inquiryId: string;
+  teacherId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  inquiryId?: string;
 }
 
 export class ReviewReplyDto {

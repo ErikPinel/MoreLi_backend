@@ -17,12 +17,17 @@ export class AvailabilityService {
 
   async findPublic(slug: string, at?: string) {
     const teacher = await this.teachersRepository.findPublicBySlug(slug);
-    const slots = await this.availabilityRepository.findByTeacherId(teacher.id);
+    const context = await this.availabilityRepository.calendarTeacher('id', teacher.id);
+    const slots = await this.slotsForTeacher(context);
     return this.withAvailabilityCheck(slots, at);
   }
 
   async findMine(userId: string) {
     const teacher = await this.requireTeacher(userId);
+    return this.slotsForTeacher(teacher);
+  }
+
+  private slotsForTeacher(teacher: { id: string; availability_customized: boolean }) {
     if (teacher.availability_customized === false) return defaultWeeklyWindows().map((slot, index) => ({ ...slot, id: `default-${index}`, teacher_id: teacher.id, timezone: 'Asia/Jerusalem', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString() }));
     return this.availabilityRepository.findByTeacherId(teacher.id);
   }
@@ -38,7 +43,7 @@ export class AvailabilityService {
     return teacher;
   }
 
-  private withAvailabilityCheck(slots: AvailabilitySlot[], at?: string) {
+  private withAvailabilityCheck(slots: Array<Omit<AvailabilitySlot, 'id'> & { id: string | number }>, at?: string) {
     if (!at) return { slots };
     const instant = new Date(at);
     const available = isAvailableAt(slots, instant);

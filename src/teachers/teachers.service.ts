@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
-  ReplaceTeacherLevelsDto,
   ReplaceTeacherServiceAreasDto,
   ReplaceTeacherSubjectsDto,
 } from './dto/replace-teacher-collections.dto.js';
@@ -124,18 +123,13 @@ export class TeachersService {
     if (dto.teachesInPerson && !dto.citySlugs.length) throw new BadRequestException('בחרו עיר לשיעורים פרונטליים.');
     if (dto.avatarPath && !dto.avatarPath.startsWith(`${userId}/`)) throw new BadRequestException('תמונת הפרופיל חייבת להיות שייכת לחשבון שלך.');
     if ((dto.submitForReview || teacher.profile_status !== 'draft') &&
-      (!dto.firstName.trim() || !dto.lastName.trim() || dto.phone.trim().length < 7 || !dto.citySlug || !dto.avatarPath || !dto.headline.trim() || !dto.bio.trim() || dto.hourlyPrice < 1 || !dto.subjectSlugs.length || !dto.levelIds.length || !dto.slots.length)) {
+      (!dto.firstName.trim() || !dto.lastName.trim() || dto.phone.trim().length < 7 || !dto.citySlug || !dto.avatarPath || !dto.headline.trim() || !dto.bio.trim() || dto.hourlyPrice < 1 || !dto.subjectSlugs.length || !dto.slots.length)) {
       throw new BadRequestException('יש להשלים את כל פרטי החובה לפני שמירה או שליחה לבדיקה.');
     }
     for (const slot of dto.slots) {
       if (slot.startTime >= slot.endTime || (slot.timezone && slot.timezone !== 'Asia/Jerusalem') || slot.isActive === false) throw new BadRequestException('יש לבחור חלונות זמן פעילים ותקינים לפי שעון ישראל.');
     }
     return this.teachersRepository.saveProfile(userId, dto);
-  }
-
-  async replaceLevels(userId: string, dto: ReplaceTeacherLevelsDto) {
-    const teacher = await this.findMe(userId);
-    return this.teachersRepository.replaceLevels(teacher.id, dto);
   }
 
   async replaceServiceAreas(

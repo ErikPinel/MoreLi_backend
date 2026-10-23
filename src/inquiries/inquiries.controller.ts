@@ -16,7 +16,7 @@ export class InquiriesController {
   constructor(private readonly inquiriesService: InquiriesService) {}
 
   @Post()
-  @Roles('student')
+  @Roles('student', 'teacher')
   create(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateInquiryDto,

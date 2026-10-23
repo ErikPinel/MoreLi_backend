@@ -1,4 +1,5 @@
 import { AvailabilitySlot } from './availability.repository.js';
+type AvailabilityWindow = Pick<AvailabilitySlot, 'day_of_week' | 'start_time' | 'end_time' | 'timezone'>;
 
 const WEEKDAYS = new Map([
   ['Sun', 0],
@@ -11,13 +12,13 @@ const WEEKDAYS = new Map([
 ]);
 
 export function isAvailableAt(
-  slots: AvailabilitySlot[],
+  slots: AvailabilityWindow[],
   instant: Date,
 ): boolean {
   return slots.some((slot) => slotContainsInstant(slot, instant));
 }
 
-function slotContainsInstant(slot: AvailabilitySlot, instant: Date): boolean {
+function slotContainsInstant(slot: AvailabilityWindow, instant: Date): boolean {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: slot.timezone,
     weekday: 'short',

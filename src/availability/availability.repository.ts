@@ -42,23 +42,27 @@ export class AvailabilityRepository {
     return data;
   }
 
-  async calendarTeacher(field: 'id' | 'slug', value: string): Promise<CalendarTeacherContext> {
-    const { data, error } = await this.supabase.client.from('teacher_profiles')
+  async calendarTeacher(field: 'id' | 'slug', value: string, publishedOnly = true): Promise<CalendarTeacherContext> {
+    let request = this.supabase.client.from('teacher_profiles')
       .select('id,availability_customized,profile:profiles!teacher_profiles_user_id_fkey(city:cities(name_he,latitude,longitude))')
-      .eq(field, value).eq('profile_status', 'published').single();
+      .eq(field, value);
+    if (publishedOnly) request = request.eq('profile_status', 'published');
+    const { data, error } = await request.single();
     if (error) throwSupabaseError(error, 'פרופיל המורה אינו זמין');
     return data as unknown as CalendarTeacherContext;
   }
 
-  async busyLessons(teacherId: string): Promise<BusyLesson[]> {
+  async busyLessons(teacherId: string, excludeLessonId?: string): Promise<BusyLesson[]> {
     const rows: BusyLesson[] = [];
     for (let offset = 0; ; offset += 500) {
-      const { data, error } = await this.supabase.client.from('inquiries').select('requested_start_at,requested_end_at')
-        .eq('teacher_id', teacherId).eq('status', 'accepted').eq('lesson_status', 'awaiting')
-        .gte('requested_end_at', new Date().toISOString()).lte('requested_start_at', new Date(Date.now() + 92 * 86400000).toISOString())
-        .order('requested_start_at').order('id').range(offset, offset + 499);
+      let request = this.supabase.client.from('lessons').select('starts_at,ends_at')
+        .eq('teacher_id', teacherId).eq('status', 'scheduled')
+        .gte('ends_at', new Date().toISOString()).lte('starts_at', new Date(Date.now() + 92 * 86400000).toISOString())
+        .order('starts_at').order('id').range(offset, offset + 499);
+      if (excludeLessonId) request = request.neq('id', excludeLessonId);
+      const { data, error } = await request;
       if (error) throwSupabaseError(error, 'לא ניתן לבדוק שיעורים שכבר אושרו');
-      rows.push(...data);
+      rows.push(...data.map((row) => ({ requested_start_at: row.starts_at, requested_end_at: row.ends_at })));
       if (data.length < 500) return rows;
     }
   }

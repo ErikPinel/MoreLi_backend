@@ -14,5 +14,9 @@ export class SupportController {
   @Post('support/tickets/:id/messages') reply(@CurrentUser() user:AuthUser,@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:ReplySupportTicketDto){return this.repository.reply(user.sub,id,dto);}
   @Roles('admin') @Get('admin/support-tickets') adminList(@CurrentUser() user:AuthUser,@Query() query:ListSupportTicketsDto){return this.repository.list(user.sub,query,true);}
   @Roles('admin') @Get('admin/support-tickets/:id') adminDetail(@CurrentUser() user:AuthUser,@Param('id',new ParseUUIDPipe()) id:string){return this.repository.detail(user.sub,id,true);}
+  @Roles('admin') @Post('admin/support-tickets/:id/payments/:paymentId/reopen')
+  reopenPayment(@CurrentUser() user:AuthUser,@Param('id',new ParseUUIDPipe()) id:string,@Param('paymentId',new ParseUUIDPipe()) paymentId:string){
+    return this.repository.reopenPayment(user.sub,id,paymentId);
+  }
   @Roles('admin') @Post('admin/support-tickets/:id/messages') adminReply(@CurrentUser() user:AuthUser,@Param('id',new ParseUUIDPipe()) id:string,@Body() dto:ReplySupportTicketDto){return this.repository.reply(user.sub,id,dto);}
 }

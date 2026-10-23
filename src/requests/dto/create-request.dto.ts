@@ -33,11 +33,6 @@ export class CreateRequestDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  levelId?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
   cityId?: number;
 
   @IsBoolean()

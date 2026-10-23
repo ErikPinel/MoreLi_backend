@@ -49,12 +49,6 @@ export class SearchTeachersDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  levelId?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
   cityId?: number;
 
   @IsOptional()

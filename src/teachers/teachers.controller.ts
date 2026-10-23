@@ -14,7 +14,6 @@ import { Public } from '../common/decorators/public.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import type { AuthUser } from '../common/types/auth-user.type.js';
 import {
-  ReplaceTeacherLevelsDto,
   ReplaceTeacherServiceAreasDto,
   ReplaceTeacherSubjectsDto,
 } from './dto/replace-teacher-collections.dto.js';
@@ -78,15 +77,6 @@ export class TeachersController {
     @Body() dto: ReplaceTeacherSubjectsDto,
   ) {
     return this.teachersService.replaceSubjects(user.sub, dto);
-  }
-
-  @Put('me/levels')
-  @Roles('teacher')
-  replaceLevels(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: ReplaceTeacherLevelsDto,
-  ) {
-    return this.teachersService.replaceLevels(user.sub, dto);
   }
 
   @Put('me/service-areas')

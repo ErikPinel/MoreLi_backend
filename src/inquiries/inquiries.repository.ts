@@ -61,7 +61,7 @@ export class InquiriesRepository {
 
   async findOwnedDetail(userId: string, inquiryId: string): Promise<InquiryListItem> {
     const teacherId = await this.findTeacherIdByUserId(userId);
-    let query = this.supabase.client.from('inquiries').select(`*, student:profiles!inquiries_student_id_fkey(id,first_name,last_name,avatar_path,phone,contact_email),
+    let query = this.supabase.client.from('inquiries').select(`*, lesson:lessons!lessons_source_inquiry_id_fkey(id), student:profiles!inquiries_student_id_fkey(id,first_name,last_name,avatar_path,phone,contact_email),
       teacher:teacher_profiles!inquiries_teacher_id_fkey(id,slug,headline,profile:profiles!teacher_profiles_user_id_fkey(first_name,last_name,avatar_path,phone,contact_email))`).eq('id', inquiryId);
     query = teacherId ? query.or(`student_id.eq.${userId},teacher_id.eq.${teacherId}`) : query.eq('student_id', userId);
     const { data, error } = await query.maybeSingle();
@@ -104,6 +104,7 @@ export class InquiriesRepository {
         ? request.eq('student_id', userId)
         : request.eq('teacher_id', teacherId!);
     if (query.status) request = request.eq('status', query.status);
+    if (query.view === 'actionable') request = request.in('status', ['sent', 'viewed']);
 
     const { data, error } = await request;
     if (error) throwSupabaseError(error, 'Failed to load inquiries');

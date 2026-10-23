@@ -28,7 +28,6 @@ export class RequestsRepository {
       .insert({
         student_id: userId,
         subject_id: resolved.subjectId,
-        level_id: dto.levelId ?? null,
         city_id: resolved.cityId ?? null,
         online_ok: dto.onlineOk,
         in_person_ok: dto.inPersonOk,
@@ -55,7 +54,7 @@ export class RequestsRepository {
       .from('student_requests')
       .update({
         subject_id: resolved.subjectId,
-        level_id: dto.levelId ?? null,
+        level_id: null,
         city_id: resolved.cityId ?? null,
         online_ok: dto.onlineOk,
         in_person_ok: dto.inPersonOk,

@@ -27,8 +27,6 @@ export class SaveTeacherProfileDto {
   teachesInPerson: boolean;
   @IsArray() @ArrayUnique() @IsString({ each: true }) @MaxLength(160, { each: true })
   subjectSlugs: string[];
-  @IsArray() @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true })
-  levelIds: number[];
   @IsArray() @ArrayUnique() @IsString({ each: true }) @MaxLength(160, { each: true })
   citySlugs: string[];
   @IsArray() @ValidateNested({ each: true }) @Type(() => AvailabilitySlotDto)

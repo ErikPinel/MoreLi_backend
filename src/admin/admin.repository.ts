@@ -27,8 +27,7 @@ export class AdminRepository {
         profile:profiles!teacher_profiles_user_id_fkey(
           id, first_name, last_name, contact_email, phone, avatar_path, created_at
         ),
-        subjects:teacher_subjects(subject:subjects(name_he)),
-        levels:teacher_levels(level:levels(name_he))
+        subjects:teacher_subjects(subject:subjects(name_he))
       `)
       .order('created_at', { ascending: false })
       .order('id')
@@ -40,10 +39,13 @@ export class AdminRepository {
     }
     const { data, error } = await request;
     if (error) throwSupabaseError(error, 'Failed to load teachers');
+    const cases = data.length ? await this.supabase.client.from('support_tickets').select('id,teacher_id')
+      .eq('workflow','onboarding').in('teacher_id',data.map(teacher=>teacher.id)) : { data: [], error: null };
+    if(cases.error) throwSupabaseError(cases.error,'Failed to load onboarding support cases');
     return Promise.all(data.map(async (teacher) => {
       const path = teacher.profile?.avatar_path;
       const avatar = path ? await this.supabase.client.storage.from('teacher-avatars').createSignedUrl(path, 300) : null;
-      return { ...teacher, avatarUrl: avatar?.data?.signedUrl ?? null };
+      return { ...teacher, avatarUrl: avatar?.data?.signedUrl ?? null, support_ticket_id: cases.data?.find(ticket=>ticket.teacher_id===teacher.id)?.id ?? null };
     }));
   }
 
@@ -130,6 +132,7 @@ export class AdminRepository {
       .order('id')
       .range(offset, offset + limit - 1);
     if (query.status) request = request.eq('status', query.status);
+    if (query.reviewId) request = request.eq('id', query.reviewId);
     const { data, error } = await request;
     if (error) throwSupabaseError(error, 'Failed to load reviews');
     return data;

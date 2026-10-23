@@ -4,7 +4,6 @@ import { throwSupabaseError } from '../common/database/supabase-error.js';
 import { Database, Json } from '../database/database.types.js';
 import { SupabaseService } from '../database/supabase.service.js';
 import {
-  ReplaceTeacherLevelsDto,
   ReplaceTeacherServiceAreasDto,
   ReplaceTeacherSubjectsDto,
 } from './dto/replace-teacher-collections.dto.js';
@@ -19,7 +18,6 @@ const PUBLIC_TEACHER_SELECT = `
   review_count, response_rate, response_time_minutes, is_founder, published_at,
   profile:profiles!teacher_profiles_user_id_fkey(first_name, last_name, avatar_path),
   subjects:teacher_subjects(subject_id, experience_years, description, subject:subjects(id, name_he, name_en, slug)),
-  levels:teacher_levels(level_id, level:levels(id, name_he, name_en, slug)),
   service_areas:teacher_service_areas(city_id, city:cities(id, name_he, name_en, slug))
 `;
 
@@ -60,7 +58,6 @@ export class TeachersRepository {
       'search_teacher_candidates_v2',
       {
         p_subject_id: query.subjectId,
-        p_level_id: query.levelId,
         p_city_id: query.cityId,
         p_online_ok: query.onlineOk,
         p_in_person_ok: query.inPersonOk,
@@ -83,7 +80,6 @@ export class TeachersRepository {
       'count_teacher_candidates_v2',
       {
         p_subject_id: query.subjectId,
-        p_level_id: query.levelId,
         p_city_id: query.cityId,
         p_online_ok: query.onlineOk,
         p_in_person_ok: query.inPersonOk,
@@ -142,7 +138,6 @@ export class TeachersRepository {
           first_name, last_name, phone, contact_email, avatar_path, role, city_id
         ),
         subjects:teacher_subjects(subject_id, experience_years, description),
-        levels:teacher_levels(level_id),
         service_areas:teacher_service_areas(city_id),
         availability:teacher_availability(
           id, day_of_week, start_time, end_time, timezone, is_active
@@ -152,14 +147,17 @@ export class TeachersRepository {
       .order('subject_id', {
         referencedTable: 'teacher_subjects',
       })
-      .order('level_id', { referencedTable: 'teacher_levels' })
       .order('city_id', { referencedTable: 'teacher_service_areas' })
       .order('day_of_week', { referencedTable: 'teacher_availability' })
       .order('start_time', { referencedTable: 'teacher_availability' })
       .maybeSingle();
 
     if (error) throwSupabaseError(error, 'Failed to load teacher onboarding');
-    return data as unknown as TeacherOnboarding | null;
+    if (!data) return null;
+    const ticket = await this.supabase.client.from('support_tickets').select('id')
+      .eq('teacher_id',data.id).eq('workflow','onboarding').maybeSingle();
+    if (ticket.error) throwSupabaseError(ticket.error, 'Failed to load onboarding support case');
+    return { ...data, support_ticket_id: ticket.data?.id ?? null };
   }
 
   async createDraft(
@@ -266,15 +264,6 @@ export class TeachersRepository {
       { p_teacher_id: teacherId, p_subjects: subjects as Json },
     );
     if (error) throwSupabaseError(error, 'Failed to replace teacher subjects');
-    return data;
-  }
-
-  async replaceLevels(teacherId: string, dto: ReplaceTeacherLevelsDto) {
-    const { data, error } = await this.supabase.client.rpc(
-      'replace_teacher_levels',
-      { p_teacher_id: teacherId, p_level_ids: dto.levelIds },
-    );
-    if (error) throwSupabaseError(error, 'Failed to replace teacher levels');
     return data;
   }
 

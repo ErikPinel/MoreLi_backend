@@ -5,7 +5,7 @@ export const lessonZone = 'Asia/Jerusalem';
 export type CalendarLocation = { name: string; latitude: number; longitude: number };
 export type WeeklyWindow = { day_of_week: number; start_time: string; end_time: string; is_active: boolean };
 export type BusyLesson = { requested_start_at: string | null; requested_end_at: string | null };
-export const defaultWeeklyWindows = () => Array.from({ length: 7 }, (_, day_of_week) => ({ day_of_week, start_time: '09:00:00', end_time: '21:00:00', is_active: true }));
+export const defaultWeeklyWindows = () => Array.from({ length: 5 }, (_, day_of_week) => ({ day_of_week, start_time: '09:00:00', end_time: '21:00:00', is_active: true }));
 
 export function buildLessonCalendar(input: { slots: WeeklyWindow[]; customized: boolean; location?: CalendarLocation | null; busy: BusyLesson[]; duration: number; days?: number; now?: DateTime }) {
   const now = (input.now ?? DateTime.now()).setZone(lessonZone);

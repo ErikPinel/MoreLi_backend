@@ -12,7 +12,6 @@ import { EmailModule } from './email/email.module.js';
 import { FavoritesModule } from './favorites/favorites.module.js';
 import { HealthModule } from './health/health.module.js';
 import { InquiriesModule } from './inquiries/inquiries.module.js';
-import { LevelsModule } from './levels/levels.module.js';
 import { LocationsModule } from './locations/locations.module.js';
 import { MatchingModule } from './matching/matching.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -24,6 +23,7 @@ import { TeachersModule } from './teachers/teachers.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AccessModule } from './access/access.module.js';
 import { SupportModule } from './support/support.module.js';
+import { LessonsModule } from './lessons/lessons.module.js';
 
 @Module({
   imports: [
@@ -42,13 +42,13 @@ import { SupportModule } from './support/support.module.js';
     SupportModule,
     TeachersModule,
     SubjectsModule,
-    LevelsModule,
     LocationsModule,
     AvailabilityModule,
     RequestsModule,
     MatchingModule,
     NotificationsModule,
     InquiriesModule,
+    LessonsModule,
     FavoritesModule,
     HealthModule,
     ReviewsModule,

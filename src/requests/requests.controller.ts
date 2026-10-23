@@ -8,7 +8,7 @@ import { StudentRequest } from './requests.repository.js';
 import { RequestsService } from './requests.service.js';
 
 @Controller('requests')
-@Roles('student')
+@Roles('student', 'teacher')
 export class RequestsController {
   constructor(private readonly requestsService: RequestsService) {}
 

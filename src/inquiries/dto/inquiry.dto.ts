@@ -52,6 +52,10 @@ export class RespondInquiryDto {
 
 export class ListInquiriesDto {
   @IsOptional()
+  @IsIn(['actionable'])
+  view?: 'actionable';
+
+  @IsOptional()
   @IsIn(['student', 'teacher'])
   side: 'student' | 'teacher' = 'student';
 

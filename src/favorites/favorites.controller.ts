@@ -5,7 +5,7 @@ import type { AuthUser } from '../common/types/auth-user.type.js';
 import { FavoritesService } from './favorites.service.js';
 
 @Controller('favorites')
-@Roles('student')
+@Roles('student', 'teacher')
 export class FavoritesController {
   constructor(private readonly favoritesService: FavoritesService) {}
 

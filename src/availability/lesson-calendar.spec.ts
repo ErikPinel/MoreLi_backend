@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon';
-import { buildLessonCalendar, lessonZone } from './lesson-calendar.js';
+import { buildLessonCalendar, defaultWeeklyWindows, lessonZone } from './lesson-calendar.js';
 
 describe('Israel-local teacher calendar',()=>{
   const now=DateTime.fromISO('2026-10-22T08:00',{zone:lessonZone});
   const input={slots:[],customized:false,location:{name:'Jerusalem',latitude:31.78,longitude:35.23},busy:[],duration:60,days:7,now};
   it('defaults to 09–21 and subtracts actual local Shabbat boundaries',()=>{
+    expect(defaultWeeklyWindows().map(slot=>slot.day_of_week)).toEqual([0,1,2,3,4]);
     const calendar=buildLessonCalendar(input);
     expect(calendar.usesDefault).toBe(true);
     const sunday=calendar.days.find(day=>day.date==='2026-10-25')!;
@@ -16,6 +17,8 @@ describe('Israel-local teacher calendar',()=>{
     }
     expect(calendar.days.find(day=>day.date==='2026-10-23')!.times.some(time=>time.time==='18:00')).toBe(false);
     expect(calendar.days.find(day=>day.date==='2026-10-24')!.times.some(time=>time.time==='12:00')).toBe(false);
+    expect(calendar.days.find(day=>day.date==='2026-10-23')!.times).toEqual([]);
+    expect(calendar.days.find(day=>day.date==='2026-10-24')!.times).toEqual([]);
   });
   it('preserves an explicitly empty or custom schedule',()=>{
     expect(buildLessonCalendar({...input,customized:true}).days.every(day=>!day.times.length)).toBe(true);

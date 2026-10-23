@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { TeachersRepository } from '../teachers/teachers.repository.js';
 import { FavoritesRepository, Favorite } from './favorites.repository.js';
 
@@ -12,6 +12,8 @@ export class FavoritesService {
   async add(userId: string, teacherId: string): Promise<Favorite> {
     const teachers = await this.teachersRepository.findPublicByIds([teacherId]);
     if (teachers.length === 0) throw new NotFoundException('Teacher not found');
+    const ownTeacher = await this.teachersRepository.findByUserId(userId);
+    if (ownTeacher?.id === teacherId) throw new BadRequestException('לא ניתן לשמור את פרופיל המורה שלך');
     return this.favoritesRepository.add(userId, teacherId);
   }
 

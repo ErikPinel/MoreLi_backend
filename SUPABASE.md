@@ -35,6 +35,45 @@ Rules:
 
 Project reference: `whzrmgntqsinkxfqymqz`.
 
+Open student ratings update (2026-10-23):
+`20261023190000_open_student_ratings` is applied and ledgered. Ratings no longer
+require a completed lesson or inquiry. An integer 1–5 rating remains mandatory;
+comments are optional. The insert guard independently checks student-account
+authorship, published teacher status and no self-rating. Existing reviews and
+teacher aggregates were unchanged, and notification/outbox counts stayed at 23/66.
+Browser execution of the new RPC remains revoked. Only the API was restarted.
+
+Persistent lessons update (2026-10-23):
+`20261023180000_persistent_lessons` is applied and ledgered. Three accepted inquiries
+were backfilled exactly once, including one without a recorded time that remains
+`needs_scheduling`. Source inquiry, teacher-profile and availability fingerprints
+were unchanged; notification/outbox counts stayed at 23/66. RLS and browser-role
+restrictions were verified. Compiled repository queries verified owned next-five
+ordering, weekly ranges, canonical busy slots, participant contacts and the
+one-to-one first-lesson link without writes. Only the API was restarted; the
+existing client process was left running.
+
+Connected support update (2026-10-23):
+`20261023140000_payment_reconsideration` and
+`20261023160000_connected_support_cases` are applied and ledgered.
+Teacher onboarding and Bit reports now have transactionally synchronized cases,
+with `waiting_customer` and automatic decision messages. Existing linked cases,
+workflow triggers, browser RPC restrictions and server-side contextual queries
+were verified read-only after deployment. The reported approved payment remains
+approved and its already-resolved case remains resolved; no approval was made as
+part of deployment. Backfill does not enqueue retrospective emails/notifications.
+
+Current search update (2026-10-23): `20261023110000_subject_category_search`,
+`20261023111000_retire_teacher_levels` and
+`20261023112000_migrate_legacy_subject_assignments` are applied and ledgered.
+All 93 ` - הכל` categories include their active subsubjects. Existing teachers
+and requests have been remapped from known inactive legacy subjects to their
+active equivalents, retaining subject metadata. Levels remain in historical
+tables but are no longer selected, required or matched by the app; the levels
+API routes are retired. Use [verify-search.sql](supabase/verify-search.sql) for
+read-only verification. Older level-related examples below describe historical
+schema/workflows, not active product requirements.
+
 Current release update (2026-09-12): migrations through
 `20260912210000_no_payment_mvp_delivery` are applied and ledgered. This adds
 private `email_outbox` and `teacher_review_audit`, review reasons, consent timestamp,
@@ -79,6 +118,13 @@ The applied migration ledger contains:
 | `20260912190000` | `replace_professions` |
 | `20260912191000` | `fix_replace_professions_safe_update` |
 | `20260912210000` | `no_payment_mvp_delivery` |
+| `20261023110000` | `subject_category_search` |
+| `20261023111000` | `retire_teacher_levels` |
+| `20261023112000` | `migrate_legacy_subject_assignments` |
+| `20261023140000` | `payment_reconsideration` |
+| `20261023160000` | `connected_support_cases` |
+| `20261023180000` | `persistent_lessons` |
+| `20261023190000` | `open_student_ratings` |
 
 Business RPCs and invariant triggers are service-role-only. Browser roles have
 no table grants and no execute grants on these functions. Use the migration files
@@ -111,6 +157,26 @@ Provisioning-only variables:
 Use `.env.example` as the template. Real values belong in `.env` or the deployment platform's secret store. `.env` is ignored by Git.
 
 Rotate a secret immediately if it is committed, logged, pasted into chat, or otherwise disclosed.
+
+## Persistent lesson storage
+
+Migration `20261023180000_persistent_lessons` introduces private canonical `lessons`
+with unique first-inquiry and teacher/request-key constraints, participant FKs and
+teacher/student time indexes. Browser roles have no table or RPC grants; access
+runs through the owned NestJS lesson APIs. `support_tickets.lesson_id` records the
+exact lesson independently of the accepted connection inquiry.
+
+Installation briefly locks inquiry writes, backfills every accepted inquiry before
+enabling booking guards, then installs transactional acceptance and legacy-mirroring
+triggers. It must preserve source inquiry fingerprints, lifecycle decisions, custom
+availability and notification/outbox counts. No backfill notification is emitted.
+Only new/unconfigured default schedules use Sunday–Thursday 09:00–21:00.
+
+For deployment, run the migration tests first. Apply this migration once, verify
+one canonical source lesson per accepted inquiry and the preservation checks, then
+record its version/name in the migration ledger if using the Management API SQL
+fallback. Rebuild/restart the API separately: an existing `node dist/main.js`
+process does not reload after a build.
 
 ## Two separate connections
 
@@ -197,14 +263,15 @@ passes only the verified JWT subject into ownership-sensitive functions.
 | `replace_teacher_levels` | Replaces the full active-level collection atomically. |
 | `replace_teacher_service_areas` | Replaces the full active-city collection atomically. |
 | `replace_teacher_availability` | Replaces all slots atomically; a trigger rejects active overlaps. |
-| `submit_teacher_for_review` | Locks the owned profile, checks identity, contact email, avatar, biography, price, modes, subjects, levels, and service area, then moves it to `pending`. |
+| `submit_teacher_for_review` | Locks the owned profile, checks identity, contact email, avatar, biography, price, modes, subjects and service area, then moves it to `pending`. |
 | `approve_teacher_review` | Publishes only a pending profile, marks it verified, and emits the approval notification. |
-| `search_teacher_candidates` | Returns published teachers satisfying subject, level, mode/location, and budget hard filters. |
+| `search_teacher_candidates` | Returns published teachers satisfying subject/category, mode/location and budget hard filters; the legacy level argument is ignored. |
 | `persist_matches` | Rechecks every hard filter, replaces ranks atomically, and moves `open` to `matched`. |
 | `create_inquiry` | Locks a published teacher, verifies optional matched-request ownership, inserts the inquiry, and marks the match contacted. |
 | `mark_inquiry_viewed` | Allows only the target teacher to move `sent` to `viewed`. |
 | `respond_to_inquiry` | Allows only the target teacher to accept/decline and refreshes response metrics atomically. |
-| `submit_verified_review` | Requires the student's accepted inquiry; the review trigger refreshes rating count/average in the same transaction. |
+| `submit_verified_review` | Legacy accepted-inquiry submission, without an attendance prerequisite; the review trigger refreshes rating count/average transactionally. |
+| `submit_teacher_review` | Publishes a mandatory 1–5 rating for another published teacher, without requiring an inquiry/lesson. Comment is optional; one rating per student/teacher and transactional aggregates/notification remain. |
 | `expire_stale_inquiries` | Expires unanswered inquiries and emits notifications. |
 | `moderate_teacher` | Applies admin-owned verification/publication changes and emits notifications. |
 | `moderate_review` | Applies valid admin review-moderation transitions. |

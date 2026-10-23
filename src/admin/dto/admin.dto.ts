@@ -64,6 +64,7 @@ export class ListTeacherHistoryDto {
 }
 
 export class ListAdminReviewsDto {
+  @IsOptional() @IsUUID() reviewId?: string;
   @IsOptional()
   @IsIn(['pending', 'published', 'rejected'])
   status?: ReviewStatus;

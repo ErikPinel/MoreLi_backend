@@ -125,7 +125,7 @@ export function renderEmail(job: EmailJob, baseUrl: string) {
       if (accepted) {
         if (job.audience === 'teacher' || admin) text += `\nפרטי תלמיד: ${value('studentEmail')} | ${value('studentPhone')}`;
         if (job.audience === 'student' || admin) text += `\nפרטי מורה: ${value('teacherEmail')} | ${value('teacherPhone')}`;
-        text += '\nיש לתאם את פרטי המפגש ישירות. אין סליקת כרטיס או חיוב אוטומטי באתר. מועד השיעור ממתין לאישור שהתקיים לאחר הזמן שנבחר.';
+        text += '\nהשיעור נקבע למועד שמופיע בהודעה. אפשר לתאם ישירות את מקום המפגש או קישור השיחה. לאחר שעת הסיום, כל משתתף יאשר בנפרד שהשיעור התקיים. אין חיוב אוטומטי באתר.';
       } else if (job.event_type === 'inquiry.sent') {
         text += '\nזו בקשת זמן מועדף, לא הזמנה מאושרת. פרטי הקשר ייחשפו רק לאחר קבלת הבקשה.';
       } else text += '\nהבקשה לא התקבלה. ניתן לפנות למורה אחר.';
@@ -144,6 +144,18 @@ export function renderEmail(job: EmailJob, baseUrl: string) {
       text = `${value('teacherName')}\n${job.event_type === 'billing.approved' ? `הגישה לקבלת תלמידים חדשים אושרה עד ${value('until') ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'long', timeZone: 'Asia/Jerusalem' }).format(new Date(value('until'))) : 'המועד המופיע בחשבון'}. אין חידוש או חיוב אוטומטי.` : `סיבת ההחלטה: ${value('reason')}\nניתן להשיב להודעה או לפנות לתמיכה.`}`;
       path = admin ? `/admin?payment=${encodeURIComponent(job.entity_id)}#payments` : '/teacher/access';
       break;
+    case 'lesson.changed':
+      subject = value('action') === 'scheduled' ? 'המורה קבע לכם שיעור חדש' : value('action') === 'rescheduled' ? 'המורה עדכן את מועד השיעור'
+        : value('status') === 'completed' ? 'שני המשתתפים אישרו שהשיעור התקיים' : value('action') === 'cancel' ? 'השיעור בוטל'
+        : value('action') === 'report_no_show' ? 'התקבל דיווח על אי-הגעה לשיעור' : 'הצד השני אישר שהשיעור התקיים';
+      text = `${subject}\n${value('start') ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Asia/Jerusalem' }).format(new Date(value('start'))) : ''} (שעון ישראל)\n${value('mode') === 'in_person' ? 'פרונטלי' : 'אונליין'}\n${value('note')}`;
+      text += value('action') === 'scheduled' || value('action') === 'rescheduled'
+        ? '\nהמועד כבר מופיע בלוח השיעורים. אין צורך באישור נוסף. אם המועד אינו מתאים, פנו למורה או פתחו את השיעור לביטול מנומק. אין חיוב אוטומטי באתר.'
+        : value('action') === 'confirm_completed' && value('status') !== 'completed'
+          ? '\nאם השיעור התקיים, פתחו את השיעור ואשרו זאת בנפרד. הזמן שחלף אינו אישור נוכחות.'
+          : '\nדיווח על אי-הגעה אינו קביעה מוכחת. לבירור או מחלוקת אפשר לפנות לתמיכה מתוך השיעור.';
+      path = `/${job.audience === 'teacher' ? 'teacher' : 'student'}/lessons/${encodeURIComponent(job.entity_id)}`;
+      break;
     case 'lesson.updated':
       subject = value('status') === 'completed' ? 'שני הצדדים אישרו שהשיעור התקיים' : value('status') === 'cancelled' ? 'עדכון על ביטול שיעור' : value('status') === 'no_show_reported' ? 'דיווח על אי-הגעה לשיעור' : 'נדרש עדכון על השיעור';
       text = `${subject}\n${value('start') ? new Intl.DateTimeFormat('he-IL', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Asia/Jerusalem' }).format(new Date(value('start'))) : ''}\n${value('note')}\nדיווח אי-הגעה אינו קביעה מוכחת. במקרה של מחלוקת יש לפנות לתמיכה.`;
@@ -152,9 +164,9 @@ export function renderEmail(job: EmailJob, baseUrl: string) {
     case 'support.created':
     case 'support.updated':
       subject = admin ? `פניית תמיכה: ${value('subject')}` : job.event_type === 'support.created' ? 'הפנייה לתמיכה התקבלה' : 'התקבל מענה לפניית התמיכה';
-      text = `${value('subject')}\n${value('name')}\n${value('message')}\nהמשך השיחה והסטטוס נמצאים בעמוד הפנייה.`;
+      text = `${value('subject')}\n${value('name')}\n${value('message')}\n${admin && value('category') === 'billing' ? 'פנייה בנושא תשלום: במסך הפנייה מוצגים דיווחי התשלום של המורה, עם אישור או דחייה מנומקת.\n' : ''}המשך השיחה והסטטוס נמצאים בעמוד הפנייה.`;
       path = admin ? `/admin?ticket=${encodeURIComponent(job.entity_id)}#support` : `/support/${encodeURIComponent(job.entity_id)}`;
-      if (admin) actions = [{ label: 'צפייה ומענה', path }, { label: 'בדיקה וסגירת הפנייה', path: `${path.replace('#support', '')}&decision=resolved#support` }];
+      if (admin) actions = [{ label: value('category') === 'billing' ? 'בדיקת התשלום ומענה' : 'צפייה ומענה', path }, { label: 'בדיקה וסגירת הפנייה', path: `${path.replace('#support', '')}&decision=resolved#support` }];
       break;
     default: throw new Error('Unsupported marketplace email event');
   }

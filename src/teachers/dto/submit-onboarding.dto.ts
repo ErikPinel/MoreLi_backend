@@ -42,9 +42,6 @@ export class SubmitOnboardingDto {
   @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsString({ each: true }) @MaxLength(160, { each: true })
   subjectSlugs: string[];
 
-  @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsInt({ each: true }) @Min(1, { each: true })
-  levelIds: number[];
-
   @IsArray() @ArrayUnique() @IsString({ each: true }) @MaxLength(160, { each: true })
   citySlugs: string[];
 

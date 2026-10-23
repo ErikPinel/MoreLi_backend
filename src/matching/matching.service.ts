@@ -32,7 +32,6 @@ export class MatchingService {
     const request = await this.requestsRepository.findOwned(userId, requestId);
     const dto: CreateRequestDto = {
       subjectId: request.subject_id,
-      levelId: request.level_id ?? undefined,
       cityId: request.city_id ?? undefined,
       onlineOk: request.online_ok,
       inPersonOk: request.in_person_ok,
@@ -42,7 +41,8 @@ export class MatchingService {
       goal: request.goal,
       notes: request.notes ?? undefined,
     };
-    const ranked = await this.rank(dto);
+    const ownTeacher = await this.teachersRepository.findByUserId(userId);
+    const ranked = await this.rank(dto, ownTeacher?.id);
     await this.matchingRepository.persist(
       requestId,
       ranked.map(({ teacher: _teacher, ...scores }) => scores),
@@ -58,10 +58,9 @@ export class MatchingService {
     return this.attachTeachers(matches);
   }
 
-  private async rank(dto: CreateRequestDto): Promise<RankedTeacher[]> {
+  private async rank(dto: CreateRequestDto, excludedTeacherId?: string): Promise<RankedTeacher[]> {
     const query = Object.assign(new SearchTeachersDto(), {
       subjectId: dto.subjectId,
-      levelId: dto.levelId,
       cityId: dto.cityId,
       onlineOk: dto.onlineOk,
       inPersonOk: dto.inPersonOk,
@@ -70,7 +69,8 @@ export class MatchingService {
       page: 1,
       limit: 100,
     });
-    const candidates = await this.teachersRepository.searchCandidates(query, 100, 0);
+    const candidates = (await this.teachersRepository.searchCandidates(query, 100, 0))
+      .filter((teacher) => teacher.id !== excludedTeacherId);
     const availability = await this.matchingRepository.findAvailability(
       candidates.map((teacher) => teacher.id),
     );

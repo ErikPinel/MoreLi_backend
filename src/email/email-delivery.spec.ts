@@ -77,6 +77,26 @@ describe('Automatic server email delivery', () => {
 });
 
 describe('Email rendering and retries', () => {
+  it.each(['student', 'teacher'] as const)('links canonical lesson updates to the %s lesson view and escapes notes', (audience) => {
+    const rendered = renderEmail({ ...job, audience, event_type: 'lesson.changed', entity_id: 'lesson-1',
+      payload: { action: 'scheduled', status: 'scheduled', start: '2026-10-25T08:00:00Z', mode: 'in_person', note: '<script>note</script>' } }, 'https://example.com');
+    expect(rendered.text).toContain(`/${audience}/lessons/lesson-1`);
+    expect(rendered.text).toContain('אין צורך באישור נוסף');
+    expect(rendered.text).toContain('אין חיוב אוטומטי');
+    expect(rendered.text).toContain('פרונטלי');
+    expect(rendered.text).not.toContain('/inquiries');
+    expect(rendered.html).not.toContain('<script>');
+    expect(rendered.html).toContain('&lt;script&gt;');
+    expect(rendered.html.match(/<a /g)).toHaveLength(1);
+  });
+
+  it('distinguishes rescheduling and preserves queued legacy lesson updates', () => {
+    const changed = renderEmail({ ...job, event_type: 'lesson.changed', payload: { action: 'rescheduled', mode: 'online' } }, 'https://example.com');
+    expect(changed.subject).toContain('עדכן את מועד השיעור');
+    const legacy = renderEmail({ ...job, event_type: 'lesson.updated' }, 'https://example.com');
+    expect(legacy.text).toContain('/teacher/inquiries/inquiry-1');
+  });
+
   it.each(['inquiry.sent', 'inquiry.accepted', 'inquiry.declined'])('distinguishes all recipient roles for %s', (event_type) => {
     const subjects = ['student', 'teacher', 'admin'].map((audience) => renderEmail({ ...job, event_type, audience: audience as EmailJob['audience'] }, 'https://example.com').subject);
     expect(new Set(subjects).size).toBe(3);

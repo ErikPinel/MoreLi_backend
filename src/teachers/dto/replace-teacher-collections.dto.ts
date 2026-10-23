@@ -44,13 +44,6 @@ export class ReplaceTeacherSubjectsDto {
   subjects: TeacherSubjectDto[];
 }
 
-export class ReplaceTeacherLevelsDto {
-  @IsArray()
-  @ArrayUnique()
-  @IsInt({ each: true })
-  levelIds: number[];
-}
-
 export class ReplaceTeacherServiceAreasDto {
   @ValidateIf((dto: ReplaceTeacherServiceAreasDto) => dto.citySlugs === undefined || dto.cityIds !== undefined)
   @IsArray()

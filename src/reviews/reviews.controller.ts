@@ -12,7 +12,7 @@ export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
   @Post('reviews')
-  @Roles('student')
+  @Roles('student', 'teacher')
   create(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateReviewDto,
@@ -21,7 +21,7 @@ export class ReviewsController {
   }
 
   @Get('reviews/me')
-  @Roles('student')
+  @Roles('student', 'teacher')
   findMine(@CurrentUser() user: AuthUser): Promise<Review[]> {
     return this.reviewsService.findMine(user.sub);
   }
@@ -42,13 +42,13 @@ export class ReviewsController {
   }
 
   @Patch('reviews/:id')
-  @Roles('student')
+  @Roles('student', 'teacher')
   update(@CurrentUser() user: AuthUser, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: UpdateReviewDto) {
     return this.reviewsService.update(user.sub, id, dto);
   }
 
   @Delete('reviews/:id')
-  @Roles('student')
+  @Roles('student', 'teacher')
   remove(@CurrentUser() user: AuthUser, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.reviewsService.remove(user.sub, id);
   }

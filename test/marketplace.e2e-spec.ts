@@ -327,7 +327,9 @@ describe('Marketplace journey (e2e)', () => {
       expect(body.status).toBe('resolved'); expect(body.messages).toHaveLength(1);
     });
 
-    await request(app.getHttpServer()).post('/api/reviews').set('Authorization', `Bearer ${studentToken}`).send({ inquiryId, rating: 5, body: 'Too early to review.' }).expect(400);
+    const ratingOnly = await request(app.getHttpServer()).post('/api/reviews').set('Authorization', `Bearer ${studentToken}`).send({ teacherId, rating: 4 }).expect(201);
+    expect(ratingOnly.body.body).toBeNull();
+    await request(app.getHttpServer()).delete(`/api/reviews/${ratingOnly.body.id}`).set('Authorization', `Bearer ${studentToken}`).expect(200);
     await request(app.getHttpServer()).patch(`/api/inquiries/${inquiryId}/lesson`).set('Authorization', `Bearer ${studentToken}`).send({ action: 'confirm_completed' }).expect(400);
     const pastStart = new Date(Date.now() - 7200000).toISOString();
     const pastEnd = new Date(Date.now() - 3600000).toISOString();

@@ -19,7 +19,12 @@ React -> Clerk -> Bearer token -> NestJS -> Supabase Data/Storage
 The API is protected by default. `@Public()` is limited to health, taxonomy,
 published teacher discovery, public teacher media, reviews, availability, and
 anonymous match preview. Student, teacher, and admin mutations have explicit
-profile-backed role policies.
+profile-backed role policies. A `teacher` profile is added on top of a student
+account, so student endpoints (favorites, requests, matching, inquiry creation,
+student reviews) accept both `student` and `teacher`; teacher-only actions stay
+teacher-only. Self-use is blocked: favorites rejects your own teacher profile,
+matching excludes it, `create_inquiry` rejects self-inquiries, and the review-author
+guard independently rejects self-ratings.
 
 Application modules follow:
 
@@ -116,6 +121,41 @@ The admin email includes the amount, Bit reference, report ID and Israel-time
 submission date, with one link to the exact authenticated payment review. That screen
 shows teacher contact details and requires explicit approval or a reason for denial.
 Teacher reviews, support tickets and inquiry activity also have targeted admin links.
+Billing support tickets from teachers show that teacher's payment reports inside the
+admin ticket screen (`requester_teacher` on the admin ticket detail), so the admin
+can approve or deny with a reason there instead of only replying in the thread.
+For an appeal of a rejection, `POST /api/admin/support-tickets/:id/payments/:paymentId/reopen`
+creates a linked pending reconsideration, retaining the original decision and
+terms acceptance. It requires an admin and a billing ticket authored by the payment
+owner. Retries reuse the successor; another pending report blocks reopening.
+The existing review endpoint makes the final decision and sends its reason.
+Apply `20261023140000_payment_reconsideration.sql`, followed by
+`20261023160000_connected_support_cases.sql`, before deploying this flow, then
+rebuild and restart the API. A process launched with `node dist/main.js` does not
+reload when its source or compiled files change.
+
+Connected support cases are synchronized by database triggers in the same transaction
+as payment/profile decisions, including the existing email approval path. Actual
+onboarding submission creates one case per teacher; resubmission reuses it. Each Bit
+report creates a case, and reconsideration reuses the original linked conversation.
+Approval records an automatic decision message and resolves the exact case; rejection
+or return for correction records the reason and sets `waiting_customer`. Owner replies
+return cases to `open`; they do not approve a payment or resubmit a draft profile.
+Manual case closure never changes domain decisions. Decision emails/notifications
+remain the existing domain events, avoiding duplicate decision email deliveries.
+
+`GET /api/admin/support-tickets?view=actionable` includes only `open`/`in_progress`.
+`status=waiting_customer` and the existing status filters expose other queues.
+`POST /api/support/tickets` accepts an optional `reviewId`; the contextual RPC validates
+review visibility/ownership atomically with ticket creation. Review target UUIDs survive
+content deletion without retaining a copy of deleted content. Existing inquiry ownership
+checks still apply to lesson complaints. Ordinary lessons/reviews do not create cases.
+Automatic cases do not consume the five-per-day manual support quota.
+
+The connected-cases migration backfills pending profiles/reports and existing linked
+appeals without approving anything or queuing retrospective emails/notifications.
+Active legacy cases with an already recorded payment decision are synchronized to that
+decision without changing its access period, consent, reviewer or history.
 No email link changes application state merely by being opened. Inquiry subjects
 distinguish the student, teacher and admin messages. Review the pending queue before
 enabling a sender: startup also processes earlier queued jobs.
@@ -163,12 +203,67 @@ no production Resend delivery or inbox receipt was certified in this workspace.
 
 ### Teacher Access And Engagement Workflows
 
+Persistent lessons use migration `20261023180000_persistent_lessons`. The
+`lessons` table is canonical: one unique first lesson per accepted inquiry, then
+multiple teacher-created lessons tied to an accepted student connection. Existing
+accepted inquiries are backfilled without changing their dates, modes, lifecycle
+decisions or confirmations and without retrospective mail/notifications. A short
+inquiry write lock closes the backfill/trigger installation race.
+
+Authenticated lesson APIs:
+- `GET /api/lessons?side=student|teacher&view=upcoming|week|past|needs_action|completed|all`
+  uses stable time/ID ordering, exact totals and pagination. Week ranges use exclusive
+  `from`/`to` endpoints; upcoming includes ongoing lessons. Dashboards request `limit=5`.
+- `GET /api/lessons/:id`, `GET /api/lessons/students/:id` and
+  `GET /api/lessons/calendar` enforce participant/teacher ownership.
+- `POST /api/lessons`, `PATCH /api/lessons/:id` and
+  `PATCH /api/lessons/:id/state` schedule, reschedule or update attendance. Creation
+  has an idempotency key; additional lessons require an accepted connection, not a
+  new paid contact grant. Scheduling respects recurring availability, Shabbat and
+  teacher/student conflicts. No student appointment-confirmation step is required.
+- `GET /api/admin/lessons/:id` is administrator-only and read-only.
+
+Teacher/student locks serialize conflicting bookings. Original inquiry lifecycle
+RPCs delegate to the canonical first lesson and source fields are mirrored for old
+deep links. Attendance still requires two explicit post-end confirmations. No-show
+is a report, not proven attendance; support closure does not adjudicate it.
+`lesson.changed` emails and `lesson_updated` in-app notifications target the other
+participant and link to the correct lesson view. First acceptance reuses existing
+inquiry delivery instead of adding duplicate lesson mail. New/unconfigured recurring
+availability is Sunday–Thursday, 09:00–21:00; customized schedules, including empty
+ones, remain unchanged.
+
 Existing teacher edits use `PUT /api/teachers/me/profile` and the service-role-only
 `save_teacher_profile` transaction. Identity/contact details, teaching details,
-subjects, levels, service areas and availability commit together or all roll back.
+subjects, service areas and availability commit together or all roll back.
 Incomplete private drafts remain supported; review submission validates completeness.
 Migration `20261022190000_atomic_teacher_profile` was installed, ledgered and its
 server/browser permissions verified.
+
+### Subject Search And Retired Levels
+
+The 2026-10-23 migrations `20261023110000_subject_category_search`,
+`20261023111000_retire_teacher_levels` and
+`20261023112000_migrate_legacy_subject_assignments` are applied and ledgered.
+
+- Directory results, counts, matching preview and persisted matches share category
+  semantics: `מתמטיקה - הכל` includes all active math subsubjects, as does every
+  other ` - הכל` category. Specific subjects remain exact. Published status and
+  other hard filters are preserved; multiple matching subjects do not duplicate a teacher.
+- City results are split by the client into in-person teachers serving that city
+  (`onlineOk=false`) and online teachers anywhere (`inPersonOk=false`, no city).
+  Both queries use the existing paginated search endpoint.
+- Level selection and requirements are retired throughout the active API/UI.
+  Historical database rows remain untouched. Legacy search RPC signatures retain
+  `p_level_id` for compatibility, but it no longer filters teachers. Registration,
+  profile saves, review/publication checks and persisted matching do not require levels.
+- The catalog replacement had left existing teacher links on inactive legacy subjects.
+  The data migration remaps known legacy slugs to active equivalents, including
+  math exam-unit specializations, merging duplicate links and preserving experience
+  and descriptions. Existing student requests are remapped too.
+- Run `supabase/verify-search.sql` for deployed category-count agreement, city
+  filtering, RPC grants and remaining level requirements. Regression coverage is
+  in `src/teachers/teacher-search.spec.ts` and `teacher-onboarding.spec.ts`.
 
 - One lifetime free new-student acceptance per teacher. Existing accepted contacts
   are backfilled as grants and remain visible; repeated contact with an already
@@ -179,7 +274,16 @@ server/browser permissions verified.
   prevent concurrent free-contact or payment-retry bypasses.
 - Accepted times cannot overlap another accepted awaiting lesson. Completion is
   explicit and requires both participants after the selected end. Cancellation and
-  no-show reports are distinct; new reviews require confirmed completion.
+  no-show reports are distinct. Ratings no longer require an inquiry or confirmed lesson.
+- `POST /api/reviews` accepts `teacherId`, a mandatory integer `rating` from 1–5,
+  and optional `body` (maximum 3,000 characters). `submit_teacher_review` publishes
+  the rating, refreshes aggregates and notifies the teacher transactionally.
+  Empty/whitespace comments become null. Only signed-in student/teacher accounts
+  may rate another published teacher, once per teacher. Existing author edits,
+  deletion and moderation remain unchanged. Legacy `inquiryId` submissions remain
+  supported, but callers must provide exactly one target. Migration
+  `20261023190000_open_student_ratings` replaces only the completed-lesson insert
+  guard; it does not modify existing reviews, lesson confirmations or averages.
 - The public calendar uses Israel timezone, teacher weekly slots (09–21 defaults),
   accepted busy intervals and Hebcal location-based Shabbat boundaries. Missing
   coordinates are clearly labeled as a Jerusalem fallback. An explicitly empty
@@ -200,7 +304,6 @@ Public routes include:
 ```text
 GET  /api/health
 GET  /api/subjects
-GET  /api/levels
 GET  /api/cities
 GET  /api/teachers
 GET  /api/teachers/:slug

@@ -17,7 +17,7 @@ export class MatchingController {
   }
 
   @Post('requests/:id/matches')
-  @Roles('student')
+  @Roles('student', 'teacher')
   run(
     @CurrentUser() user: AuthUser,
     @Param('id') requestId: string,
@@ -26,7 +26,7 @@ export class MatchingController {
   }
 
   @Get('requests/:id/matches')
-  @Roles('student')
+  @Roles('student', 'teacher')
   findForRequest(
     @CurrentUser() user: AuthUser,
     @Param('id') requestId: string,

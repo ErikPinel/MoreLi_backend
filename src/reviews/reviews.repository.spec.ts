@@ -1,8 +1,29 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SupabaseService } from '../database/supabase.service.js';
 import { ReviewsRepository } from './reviews.repository.js';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { CreateReviewDto } from './dto/review.dto.js';
 
 describe('Review API privacy and ownership', () => {
+  it('submits an authenticated rating directly for a teacher without an inquiry or comment', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: [{ id: 'review', rating: 3, body: null }], error: null });
+    const repository = new ReviewsRepository({ client: { rpc } } as unknown as SupabaseService);
+    await repository.create('student-owner', { teacherId: 'teacher', rating: 3 });
+    expect(rpc).toHaveBeenCalledWith('submit_teacher_review', { p_student_id: 'student-owner', p_teacher_id: 'teacher', p_rating: 3, p_body: '' });
+    await repository.create('student-owner', { inquiryId: 'legacy-connection', rating: 4 });
+    expect(rpc).toHaveBeenLastCalledWith('submit_verified_review', { p_student_id: 'student-owner', p_inquiry_id: 'legacy-connection', p_rating: 4, p_body: '' });
+    await expect(repository.create('student-owner', { rating: 4 })).rejects.toMatchObject({ status: 400 });
+    await expect(repository.create('student-owner', { teacherId: 'teacher', inquiryId: 'connection', rating: 4 })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('validates a mandatory integer rating, optional comment and teacher target at the API boundary', async () => {
+    const teacherId = '00000000-0000-4000-8000-000000000001';
+    for (const rating of [1, 2, 3, 4, 5]) expect(await validate(plainToInstance(CreateReviewDto, { teacherId, rating }))).toEqual([]);
+    for (const rating of [undefined, null, 0, 6, 2.5, '5']) expect((await validate(plainToInstance(CreateReviewDto, { teacherId, rating }))).length).toBeGreaterThan(0);
+    expect((await validate(plainToInstance(CreateReviewDto, { rating: 5 }))).length).toBeGreaterThan(0);
+    expect((await validate(plainToInstance(CreateReviewDto, { teacherId, rating: 5, body: 'x'.repeat(3001) }))).length).toBeGreaterThan(0);
+  });
   it.each(['pending', 'rejected', 'published', undefined])('redacts nonpublic fields and %s replies', async (replyStatus) => {
     const source = { id: 'review', rating: 5, body: 'Helpful lesson', created_at: '2030-01-01', updated_at: '2030-01-01',
       student_id: 'private-student', inquiry_id: 'private-inquiry', teacher_reply: 'Teacher reply',
