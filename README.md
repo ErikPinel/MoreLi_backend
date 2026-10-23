@@ -56,6 +56,7 @@ Create `.env` from `.env.example` and set:
 | `RATE_LIMIT_MAX` | Requests allowed per IP/window |
 | `CLERK_ISSUER` | Trusted Clerk JWT issuer |
 | `CLERK_SECRET_KEY` | Server-only key for verified primary email and account deletion |
+| `CLERK_ALLOW_DEVELOPMENT_INSTANCE` | Explicit hosted-MVP opt-in for a development issuer/test secret; defaults to `false` |
 | `SUPABASE_URL` | Hosted project API URL |
 | `SUPABASE_PUBLISHABLE_KEY` | Public key used by Auth clients/tests |
 | `SUPABASE_SECRET_KEY` | Server-only service key |
@@ -76,6 +77,49 @@ Resend email is optional in development and logs a warning when disabled.
 Production startup rejects incomplete email configuration. Enter secrets directly
 in the deployment secret store, verify the sender/domain in Resend, and never put
 the API key or approval secret in a client environment variable.
+
+### Initial Vercel MVP With The Existing Clerk Instance
+
+Keep the existing backend Clerk secret, Supabase credentials, and Resend settings.
+For the stable frontend deployment, set these backend Vercel runtime variables:
+
+```dotenv
+PUBLIC_APP_URL=https://moreli-client.vercel.app
+CORS_ORIGIN=https://moreli-client.vercel.app
+CLERK_ISSUER=https://noted-caribou-6267.clerk.accounts.dev
+CLERK_ALLOW_DEVELOPMENT_INSTANCE=true
+```
+
+Keep `NODE_ENV=production`. The explicit opt-in permits a public HTTPS Clerk
+development issuer with its `sk_test_` secret. It does not relax the application,
+Supabase, or CORS HTTPS checks, email requirements, JWT verification, or access
+control. Use the stable frontend URL, not an individual deployment URL: allowed
+origins also restrict the Clerk token's authorized party. Redeploy the backend
+after updating its environment; `/api/health` must succeed before integration
+is considered working.
+
+### Clerk Production Configuration
+
+Create a production instance in the [Clerk Dashboard](https://dashboard.clerk.com)
+following the [production deployment guide](https://clerk.com/docs/guides/development/deployment/production).
+Clerk requires a domain you own, DNS configuration, and your own OAuth provider
+credentials for any enabled social sign-in providers. Development keys cannot be
+promoted by changing their prefixes.
+
+- Client Vercel project: `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...`.
+- Backend Vercel project: matching `CLERK_SECRET_KEY=sk_live_...` and
+  `CLERK_ISSUER` set to the production instance's actual issuer.
+- Set `CLERK_ALLOW_DEVELOPMENT_INSTANCE=false` on both projects to remove the
+  temporary development-instance opt-in.
+- Backend `PUBLIC_APP_URL` and `CORS_ORIGIN`: the final frontend HTTPS URL/origin.
+- Supabase credentials: backend only; the client does not require Supabase
+  environment variables or a browser Supabase SDK.
+
+Keep development credentials in local ignored files and production credentials
+in the respective hosting secret stores. Redeploy both projects after updating
+their settings, then verify sign-in/profile synchronization and provision the
+intended production administrator. Do not assume development identities or
+administrator permissions transfer automatically.
 
 ## Install And Run
 
@@ -124,7 +168,8 @@ TypeScript emits a `createRequire` alias that Vercel's tracer omitted, producing
 The ignored local `.env` file is not deployed. Configure the required variables
 from the configuration table in the backend Vercel project's Production environment
 and redeploy. Production validation requires the Supabase URL/public/secret keys,
-a production Clerk issuer and `sk_live_` secret, matching public HTTPS
+a production Clerk issuer and `sk_live_` secret (or the explicit initial-MVP
+development-instance opt-in above), matching public HTTPS
 `PUBLIC_APP_URL`/`CORS_ORIGIN`, Resend API key/verified sender/webhook secret,
 and a random 32+ character `EMAIL_APPROVAL_SECRET`. Do not use the backend API
 domain as `PUBLIC_APP_URL`: that value is the final frontend URL. Keep provisioning

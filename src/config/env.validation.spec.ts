@@ -17,6 +17,15 @@ const production = {
   EMAIL_APPROVAL_SECRET: 'test-approval-secret-with-at-least-32-characters',
 };
 
+const initialDeployment = {
+  ...production,
+  PUBLIC_APP_URL: 'https://moreli-client.vercel.app',
+  CORS_ORIGIN: 'https://moreli-client.vercel.app',
+  CLERK_ISSUER: 'https://noted-caribou-6267.clerk.accounts.dev',
+  CLERK_SECRET_KEY: 'sk_test_fixture',
+  CLERK_ALLOW_DEVELOPMENT_INSTANCE: true,
+};
+
 describe('production environment', () => {
   it('defaults to API port 5146 and respects explicit port overrides', () => {
     vi.stubEnv('PORT', undefined);
@@ -32,6 +41,50 @@ describe('production environment', () => {
   });
   it('accepts explicit HTTPS production services', () => {
     expect(envValidationSchema.validate(production).error).toBeUndefined();
+    expect(envValidationSchema.validate(production).value.CLERK_ALLOW_DEVELOPMENT_INSTANCE).toBe(false);
+  });
+  it.each([true, 'true'])('accepts the initial deployment only with the explicit opt-in %j', (optIn) => {
+    expect(envValidationSchema.validate({
+      ...initialDeployment,
+      CLERK_ALLOW_DEVELOPMENT_INSTANCE: optIn,
+    }).error).toBeUndefined();
+  });
+  it.each([false, 'false', undefined, 'invalid'])('rejects development Clerk without a valid opt-in %j', (optIn) => {
+    expect(envValidationSchema.validate({
+      ...initialDeployment,
+      CLERK_ALLOW_DEVELOPMENT_INSTANCE: optIn,
+    }).error).toBeDefined();
+  });
+  it('continues to accept production Clerk when the opt-in is enabled', () => {
+    expect(envValidationSchema.validate({
+      ...production,
+      CLERK_ALLOW_DEVELOPMENT_INSTANCE: true,
+    }).error).toBeUndefined();
+  });
+  it.each([
+    { CLERK_SECRET_KEY: 'sk_live_fixture' },
+    { CLERK_ISSUER: 'https://clerk.example.com' },
+    { CLERK_ISSUER: 'http://noted-caribou-6267.clerk.accounts.dev' },
+    { CLERK_ISSUER: 'https://localhost' },
+    { CLERK_ISSUER: 'https://127.0.0.1' },
+    { CLERK_ISSUER: 'https://clerk.local' },
+    { CLERK_ISSUER: 'https://user:password@fixture.clerk.accounts.dev' },
+    { PUBLIC_APP_URL: 'http://localhost:5173' },
+    { PUBLIC_APP_URL: 'https://fixture.clerk.accounts.dev' },
+    { SUPABASE_URL: 'http://example.supabase.co' },
+    { SUPABASE_URL: 'https://fixture.clerk.accounts.dev' },
+    { CORS_ORIGIN: 'https://moreli-client.vercel.app,http://localhost:5173' },
+    { CORS_ORIGIN: 'https://moreli-client.vercel.app,https://fixture.clerk.accounts.dev' },
+    { CORS_ORIGIN: 'https://wrong.example.com' },
+    { RESEND_FROM_EMAIL: 'onboarding@resend.dev' },
+    { RESEND_API_KEY: '' },
+    { RESEND_WEBHOOK_SECRET: '' },
+    { EMAIL_APPROVAL_SECRET: '' },
+  ])('keeps other production requirements enforced with development Clerk %j', (override) => {
+    expect(envValidationSchema.validate({
+      ...initialDeployment,
+      ...override,
+    }).error).toBeDefined();
   });
   it.each([
     { PUBLIC_APP_URL: 'http://localhost:5173' },

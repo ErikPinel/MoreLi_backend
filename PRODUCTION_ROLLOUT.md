@@ -107,7 +107,8 @@ example layout were verified against Vercel's public source.
 | `NODE_ENV` | `production` |
 | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Dedicated project HTTPS API and public key |
 | `SUPABASE_SECRET_KEY` | Server-only service key |
-| `CLERK_ISSUER`, `CLERK_SECRET_KEY` | Production issuer and matching `sk_live_...`; no `*.accounts.dev` |
+| `CLERK_ISSUER`, `CLERK_SECRET_KEY` | Production issuer and `sk_live_...`, or development `*.accounts.dev` issuer and `sk_test_...` with the explicit MVP opt-in |
+| `CLERK_ALLOW_DEVELOPMENT_INSTANCE` | Defaults `false`; set `true` only for the initial hosted MVP using the existing development instance |
 | `PUBLIC_APP_URL`, `CORS_ORIGIN` | Matching exact HTTPS client origin(s) |
 | `TRUST_PROXY` | `true` only behind a trusted reverse proxy |
 | `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | Server-only transactional key and verified sender/name |
@@ -117,7 +118,12 @@ example layout were verified against Vercel's public source.
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` | Defaults 60000 ms / 120 requests |
 
 Clerk profile sync now needs `CLERK_SECRET_KEY` locally too. Production validation
-rejects development URLs/keys, missing secrets, and inconsistent CORS. Keep
+rejects development URLs/keys by default, missing secrets, and inconsistent CORS.
+The explicit Clerk opt-in does not relax other production requirements. For the
+initial stable frontend, use `https://moreli-client.vercel.app` for both
+`PUBLIC_APP_URL` and `CORS_ORIGIN`, keep the existing matching development Clerk
+issuer/secret, and set `CLERK_ALLOW_DEVELOPMENT_INSTANCE=true`. Redeploy the backend
+code and updated environment together, then verify `/api/health`. Keep
 provisioning PATs/passwords out of runtime and every server secret out of `VITE_*`.
 
 ### Environment Management Without Dashboard Entry
