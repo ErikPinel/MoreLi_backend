@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -48,4 +49,9 @@ export class AvailabilityQueryDto {
   @IsOptional()
   @IsDateString()
   at?: string;
+}
+
+export class LessonCalendarQueryDto {
+  @IsOptional() @Type(() => Number) @IsIn([30,45,60,90,120,180,240]) duration = 60;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(90) days = 60;
 }

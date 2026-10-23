@@ -1,18 +1,17 @@
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
-export class CreateReviewDto {
-  @IsUUID()
-  inquiryId: string;
-
+export class UpdateReviewDto {
   @IsInt()
   @Min(1)
   @Max(5)
@@ -22,6 +21,23 @@ export class CreateReviewDto {
   @IsString()
   @MaxLength(3000)
   body?: string;
+}
+
+export class CreateReviewDto extends UpdateReviewDto {
+  @IsUUID()
+  inquiryId: string;
+}
+
+export class ReviewReplyDto {
+  @IsString()
+  @MinLength(5)
+  @MaxLength(2000)
+  body: string;
+}
+
+export class ModerateReviewReplyDto {
+  @IsIn(['published', 'rejected'])
+  status: 'published' | 'rejected';
 }
 
 export class ListReviewsDto {

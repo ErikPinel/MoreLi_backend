@@ -21,6 +21,7 @@ import {
 import { SearchTeachersDto } from './dto/search-teachers.dto.js';
 import { UpdateTeacherDto } from './dto/update-teacher.dto.js';
 import { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
+import { SaveTeacherProfileDto } from './dto/save-teacher-profile.dto.js';
 import {
   PublicTeacher,
   TeacherOnboarding,
@@ -62,6 +63,12 @@ export class TeachersController {
   @Roles('student', 'teacher')
   submitOnboarding(@CurrentUser() user: AuthUser, @Body() dto: SubmitOnboardingDto) {
     return this.teachersService.submitOnboarding(user.sub, dto);
+  }
+
+  @Put('me/profile')
+  @Roles('teacher')
+  saveProfile(@CurrentUser() user: AuthUser, @Body() dto: SaveTeacherProfileDto) {
+    return this.teachersService.saveProfile(user.sub, dto);
   }
 
   @Put('me/subjects')

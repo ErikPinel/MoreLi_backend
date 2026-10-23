@@ -34,17 +34,20 @@ export const envValidationSchema = Joi.object({
     .default('https://noted-caribou-6267.clerk.accounts.dev'),
   CLERK_SECRET_KEY: Joi.string().when('NODE_ENV', { is: 'production', then: Joi.required(), otherwise: Joi.optional() }),
   PUBLIC_APP_URL: Joi.string().uri().default('http://localhost:5173'),
-  BREVO_API_KEY: Joi.when('NODE_ENV', {
+  RESEND_API_KEY: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string().required(),
     otherwise: Joi.string().allow('').optional(),
   }),
-  BREVO_SENDER_EMAIL: Joi.when('NODE_ENV', {
+  RESEND_FROM_EMAIL: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.string().email().required(),
     otherwise: Joi.string().email().allow('').optional(),
   }),
-  BREVO_SENDER_NAME: Joi.string().max(70).default('MoreLi'),
+  RESEND_FROM_NAME: Joi.string().max(70).pattern(/^[^<>\r\n]+$/).default('MoreLi'),
+  RESEND_WEBHOOK_SECRET: Joi.string().min(20).when('NODE_ENV', { is: 'production', then: Joi.required(), otherwise: Joi.string().allow('').optional() }),
+  SUPPORT_EMAIL: Joi.string().email().default('erik.zusin@gmail.com'),
+  SUPPORT_PHONE: Joi.string().pattern(/^0\d{8,9}$/).default('0503939008'),
   ADMIN_NOTIFICATION_EMAIL: Joi.string()
     .email()
     .default('erik.zusin@gmail.com'),
@@ -58,6 +61,9 @@ export const envValidationSchema = Joi.object({
   SUPABASE_DB_PASSWORD: Joi.string().allow('').optional(),
 }).custom((environment, helpers) => {
   if (environment.NODE_ENV !== 'production') return environment;
+  if (environment.RESEND_FROM_EMAIL?.endsWith('@resend.dev')) {
+    return helpers.message({ custom: 'Production requires your own verified Resend sender domain, not the test sender' });
+  }
   const urls = [environment.PUBLIC_APP_URL, environment.CLERK_ISSUER,
     environment.SUPABASE_URL, ...environment.CORS_ORIGIN.split(',').map((origin: string) => origin.trim())];
   if (urls.some((value: string) => {

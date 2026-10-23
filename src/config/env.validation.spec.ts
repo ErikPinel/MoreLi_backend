@@ -11,8 +11,9 @@ const production = {
   CLERK_SECRET_KEY: 'sk_live_fixture',
   PUBLIC_APP_URL: 'https://example.com',
   CORS_ORIGIN: 'https://example.com',
-  BREVO_API_KEY: 'test-brevo',
-  BREVO_SENDER_EMAIL: 'sender@example.com',
+  RESEND_API_KEY: 're_test_fixture',
+  RESEND_FROM_EMAIL: 'sender@example.com',
+  RESEND_WEBHOOK_SECRET: 'whsec_test_fixture_at_least_20_chars',
   EMAIL_APPROVAL_SECRET: 'test-approval-secret-with-at-least-32-characters',
 };
 
@@ -37,6 +38,9 @@ describe('production environment', () => {
     { CLERK_ISSUER: 'https://fixture.clerk.accounts.dev' },
     { CLERK_SECRET_KEY: 'sk_test_fixture' },
     { CORS_ORIGIN: 'https://wrong.example.com' },
+    { RESEND_FROM_EMAIL: 'onboarding@resend.dev' },
+    { RESEND_API_KEY: '' },
+    { RESEND_WEBHOOK_SECRET: '' },
   ])('rejects unsafe deployment settings %j', (override) => {
     expect(envValidationSchema.validate({ ...production, ...override }).error).toBeDefined();
   });

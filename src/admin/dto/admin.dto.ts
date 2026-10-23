@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -22,6 +23,7 @@ type VerificationStatus = Database['public']['Enums']['verification_status'];
 type ReviewStatus = Database['public']['Enums']['review_status'];
 
 export class ListAdminTeachersDto {
+  @IsOptional() @IsUUID() teacherId?: string;
   @IsOptional()
   @IsIn(['draft', 'pending', 'published', 'suspended'])
   status?: ProfileStatus;
@@ -52,6 +54,13 @@ export class ModerateTeacherDto {
   @IsOptional()
   @IsIn(['published', 'suspended'])
   profileStatus?: Extract<ProfileStatus, 'published' | 'suspended'>;
+}
+
+export class ListTeacherHistoryDto {
+  @IsOptional() @IsUUID() teacherId?: string;
+  @IsOptional() @IsIn(['draft', 'pending', 'published', 'suspended']) status?: ProfileStatus;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit = 20;
 }
 
 export class ListAdminReviewsDto {

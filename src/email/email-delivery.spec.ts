@@ -13,7 +13,7 @@ const job = {
 } as EmailJob;
 
 describe('Automatic server email delivery', () => {
-  const config = new ConfigService({ email: { brevoApiKey: 'test-key', senderEmail: 'sender@example.com' } });
+  const config = new ConfigService({ email: { resendApiKey: 'test-key', senderEmail: 'sender@example.com' } });
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
@@ -65,9 +65,45 @@ describe('Automatic server email delivery', () => {
     expect(process).not.toHaveBeenCalled();
     await runner.onApplicationShutdown();
   });
+
+  it('does not start queue processing with the restricted Resend test sender', async () => {
+    const process = vi.fn();
+    const runner = new EmailDeliveryRunner({ process } as unknown as EmailOutboxService, new ConfigService({ email: { resendApiKey: 'test-key', senderEmail: 'onboarding@resend.dev' } }));
+    runner.start();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(process).not.toHaveBeenCalled();
+    await runner.onApplicationShutdown();
+  });
 });
 
 describe('Email rendering and retries', () => {
+  it.each(['inquiry.sent', 'inquiry.accepted', 'inquiry.declined'])('distinguishes all recipient roles for %s', (event_type) => {
+    const subjects = ['student', 'teacher', 'admin'].map((audience) => renderEmail({ ...job, event_type, audience: audience as EmailJob['audience'] }, 'https://example.com').subject);
+    expect(new Set(subjects).size).toBe(3);
+  });
+
+  it('includes payment review details and one authenticated review link', () => {
+    const rendered = renderEmail({ ...job, audience: 'admin', event_type: 'billing.requested', entity_id: 'payment-1', created_at: '2026-10-22T19:48:19Z',
+      payload: { teacherName: 'Tutor', reference: 'BIT-123', amount: '60' } }, 'https://example.com');
+    expect(rendered.text).toContain('BIT-123');
+    expect(rendered.text).toContain('payment-1');
+    expect(rendered.text).toContain('22:48:19');
+    expect(rendered.text).toContain('60');
+    expect(rendered.html.match(/<a /g)).toHaveLength(1);
+    expect(rendered.html).toContain('/admin?payment=payment-1#payments');
+    expect(rendered.html).toContain('<br />');
+    expect(rendered.html).not.toContain('decision=');
+  });
+
+  it('links administrator actions to authenticated event screens, never mutation GET endpoints', () => {
+    for (const [event_type, parameter] of [['teacher.pending','teacher='],['billing.requested','payment='],['support.created','ticket=']] as const) {
+      const rendered = renderEmail({ ...job, audience: 'admin', event_type, payload: { name: '<script>name</script>', subject: 'Help', reference: 'BIT-reference' } }, 'https://example.com');
+      expect(rendered.html).toContain(`/admin?${parameter}`);
+      expect(rendered.html).not.toContain('/approve?');
+      expect(rendered.html).not.toContain('<script>');
+      expect(rendered.html).toContain('אישור מפורש');
+    }
+  });
   it('renders frontal lessons for both existing and labeled database jobs', () => {
     for (const modeLabel of [undefined, 'פרונטלי']) {
       const message = renderEmail({ ...job, payload: { ...job.payload as object, mode: 'in_person', ...(modeLabel ? { modeLabel } : {}) } }, 'https://example.com');
@@ -94,13 +130,14 @@ describe('Email rendering and retries', () => {
   });
 
   it('acknowledges failed delivery as failure for durable retry, not success', async () => {
-    const rpc = vi.fn().mockResolvedValueOnce({ data: [job], error: null }).mockResolvedValueOnce({ data: true, error: null });
+    const snapshot = { to: ['teacher@example.com'], subject: 'Subject', text: 'Text', html: '<p>Text</p>' };
+    const rpc = vi.fn().mockResolvedValueOnce({ data: [job], error: null }).mockResolvedValueOnce({ data: snapshot, error: null }).mockResolvedValueOnce({ data: true, error: null });
     const lt = vi.fn().mockResolvedValue({ error: null });
-    const supabase = { client: { rpc, from: () => ({ delete: () => ({ in: () => ({ lt }) }) }) } } as unknown as SupabaseService;
-    const delivery = { deliverJob: vi.fn().mockResolvedValue(false) } as unknown as EmailService;
+    const supabase = { client: { rpc, from: (table: string) => table === 'email_suppressions' ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) } : { delete: () => ({ in: () => ({ lt }) }) } } } as unknown as SupabaseService;
+    const delivery = { isConfigured: () => true, isTestSender: () => false, prepareJob: () => snapshot, sendJob: vi.fn().mockResolvedValue({ accepted: false, retryable: true, errorCode: 'network_or_timeout' }) } as unknown as EmailService;
     const worker = new EmailOutboxService(supabase, delivery, new ConfigService({ publicAppUrl: 'https://example.com' }));
-    await expect(worker.process()).resolves.toEqual({ processed: 1, sent: 0, retried: 1 });
-    expect(rpc).toHaveBeenLastCalledWith('finish_email_job', { p_id: job.id, p_lease: job.lease_token, p_success: false });
+    await expect(worker.process()).resolves.toEqual({ processed: 1, sent: 0, retried: 1, failed: 0 });
+    expect(rpc).toHaveBeenLastCalledWith('finish_resend_job', { p_id: job.id, p_lease: job.lease_token, p_success: false, p_message_id: null, p_retryable: true, p_error_code: 'network_or_timeout', p_retry_after: null });
   });
 
   it('retains explicit admin processing without cron credentials', () => {
@@ -109,5 +146,13 @@ describe('Email rendering and retries', () => {
     expect(worker.process).not.toHaveBeenCalled();
     controller.process();
     expect(worker.process).toHaveBeenCalledOnce();
+  });
+
+  it('does not claim queue jobs in test-sender mode, including manual admin processing', async () => {
+    const rpc = vi.fn();
+    const worker = new EmailOutboxService({ client: { rpc } } as unknown as SupabaseService,
+      { isConfigured: () => true, isTestSender: () => true } as unknown as EmailService, new ConfigService());
+    await expect(worker.process()).rejects.toMatchObject({ status: 503 });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

@@ -3,10 +3,12 @@ import { TeachersModule } from '../teachers/teachers.module.js';
 import { AvailabilityController } from './availability.controller.js';
 import { AvailabilityRepository } from './availability.repository.js';
 import { AvailabilityService } from './availability.service.js';
+import { LessonCalendarService } from './lesson-calendar.service.js';
 
 @Module({
 	imports: [TeachersModule],
 	controllers: [AvailabilityController],
-	providers: [AvailabilityService, AvailabilityRepository],
+	providers: [AvailabilityService, AvailabilityRepository, LessonCalendarService],
+	exports: [LessonCalendarService],
 })
 export class AvailabilityModule {}

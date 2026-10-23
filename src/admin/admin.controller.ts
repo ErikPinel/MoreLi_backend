@@ -6,6 +6,7 @@ import { AdminService } from './admin.service.js';
 import {
   ListAdminReviewsDto,
   ListAdminTeachersDto,
+  ListTeacherHistoryDto,
   ModerateReviewDto,
   ModerateTeacherDto,
   ReplaceCitiesDto,
@@ -21,6 +22,11 @@ export class AdminController {
   @Get('teachers')
   findTeachers(@Query() query: ListAdminTeachersDto) {
     return this.adminService.findTeachers(query);
+  }
+
+  @Get('teacher-history')
+  findTeacherHistory(@Query() query: ListTeacherHistoryDto) {
+    return this.adminService.findTeacherHistory(query);
   }
 
   @Patch('teachers/:id')

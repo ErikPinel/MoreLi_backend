@@ -39,7 +39,7 @@ describe('Marketplace journey (e2e)', () => {
     }
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).overrideProvider(EmailService).useValue({ deliverJob: vi.fn().mockResolvedValue(true) }).compile();
+    }).overrideProvider(EmailService).useValue({ isConfigured: () => false, sendJob: vi.fn(), deliverJob: vi.fn().mockResolvedValue(true) }).compile();
     app = moduleFixture.createNestApplication();
     configureApp(app, app.get(ConfigService));
     await app.init();
@@ -214,6 +214,11 @@ describe('Marketplace journey (e2e)', () => {
       .expect(201);
     const requestId = studentRequest.body.id as string;
 
+    await request(app.getHttpServer()).post(`/api/requests/${requestId}/reopen`).set('Authorization', `Bearer ${teacherToken}`).expect(403);
+    await request(app.getHttpServer()).post(`/api/requests/${requestId}/close`).set('Authorization', `Bearer ${studentToken}`).expect(201).expect(({ body }) => expect(body.status).toBe('closed'));
+    await request(app.getHttpServer()).post(`/api/requests/${requestId}/reopen`).set('Authorization', `Bearer ${studentToken}`).expect(201).expect(({ body }) => expect(body.status).toBe('open'));
+    await request(app.getHttpServer()).post(`/api/requests/${requestId}/reopen`).set('Authorization', `Bearer ${studentToken}`).expect(404);
+
     const matches = await request(app.getHttpServer())
       .post(`/api/requests/${requestId}/matches`)
       .set('Authorization', `Bearer ${studentToken}`)
@@ -225,6 +230,9 @@ describe('Marketplace journey (e2e)', () => {
       ),
     ).toBe(true);
 
+    const calendar = await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}/calendar?duration=60&days=30`).expect(200);
+    const selectedSlot = calendar.body.days.flatMap((day: { times: { startAt: string; endAt: string }[] }) => day.times)[0] as { startAt: string; endAt: string };
+    expect(selectedSlot).toBeTruthy();
     const inquiry = await request(app.getHttpServer())
       .post('/api/inquiries')
       .set('Authorization', `Bearer ${studentToken}`)
@@ -232,8 +240,8 @@ describe('Marketplace journey (e2e)', () => {
         contactSharingConsent: true,
         teacherId,
         requestId,
-        requestedStartAt: new Date(Date.now() + 2 * 86400000).toISOString(),
-        requestedEndAt: new Date(Date.now() + 2 * 86400000 + 3600000).toISOString(),
+        requestedStartAt: selectedSlot.startAt,
+        requestedEndAt: selectedSlot.endAt,
         lessonMode: 'online',
         message: 'Can we arrange an introductory lesson?',
       })
@@ -282,11 +290,60 @@ describe('Marketplace journey (e2e)', () => {
     expect(deliveries.filter((entry) => entry.event_type === 'inquiry.sent')).toHaveLength(3);
     expect(deliveries.filter((entry) => entry.event_type === 'inquiry.accepted').map((entry) => entry.audience).sort()).toEqual(['admin', 'student', 'teacher']);
 
-    await request(app.getHttpServer())
+    await request(app.getHttpServer()).get(`/api/inquiries/${inquiryId}`).set('Authorization', `Bearer ${teacherToken}`).expect(200).expect(({ body }) => expect(body.lesson_status).toBe('awaiting'));
+    const secondEmail = `second-student-${runId}@example.com`;
+    await createUser(secondEmail, 'Second', 'Student');
+    const secondToken = await signIn(secondEmail);
+    await request(app.getHttpServer()).get(`/api/inquiries/${inquiryId}`).set('Authorization', `Bearer ${secondToken}`).expect(404);
+    await request(app.getHttpServer()).get('/api/teachers/me/access').set('Authorization', `Bearer ${teacherToken}`).expect(200).expect(({ body }) => {
+      expect(body.freeContactUsed).toBe(true); expect(body.canAcceptNewContact).toBe(false);
+    });
+    const nextCalendar = await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}/calendar?duration=60&days=30`).expect(200);
+    const nextSlot = nextCalendar.body.days.flatMap((day: { times: { startAt: string; endAt: string }[] }) => day.times)[0] as { startAt: string; endAt: string };
+    const secondInquiry = await request(app.getHttpServer()).post('/api/inquiries').set('Authorization', `Bearer ${secondToken}`).send({ contactSharingConsent: true, teacherId,
+      requestedStartAt: nextSlot.startAt, requestedEndAt: nextSlot.endAt, lessonMode: 'online', message: 'A second student requesting a lesson' }).expect(201);
+    eventEntityIds.push(secondInquiry.body.id);
+    await request(app.getHttpServer()).patch(`/api/inquiries/${secondInquiry.body.id}/respond`).set('Authorization', `Bearer ${teacherToken}`).send({ status: 'accepted' }).expect(402)
+      .expect(({ body }) => expect(body.code).toBe('TEACHER_ACCESS_REQUIRED'));
+    await request(app.getHttpServer()).get(`/api/inquiries/${secondInquiry.body.id}`).set('Authorization', `Bearer ${teacherToken}`).expect(200)
+      .expect(({ body }) => { expect(body.status).toBe('sent'); expect(body.student.phone).toBeUndefined(); });
+    const payment = await request(app.getHttpServer()).post('/api/teachers/me/access/payments').set('Authorization', `Bearer ${teacherToken}`)
+      .send({ reference: `BIT-${runId}`, acceptTerms: true }).expect(201);
+    eventEntityIds.push(payment.body.id);
+    await request(app.getHttpServer()).patch(`/api/inquiries/${secondInquiry.body.id}/respond`).set('Authorization', `Bearer ${teacherToken}`).send({ status: 'accepted' }).expect(402);
+    await request(app.getHttpServer()).patch(`/api/admin/access-payments/${payment.body.id}`).set('Authorization', `Bearer ${teacherToken}`).send({ approve: true, note: 'Not an administrator' }).expect(403);
+    await request(app.getHttpServer()).patch(`/api/admin/access-payments/${payment.body.id}`).set('Authorization', `Bearer ${adminToken}`).send({ approve: true, note: 'Controlled acceptance-test receipt checked' }).expect(200);
+    await request(app.getHttpServer()).get('/api/teachers/me/access').set('Authorization', `Bearer ${teacherToken}`).expect(200).expect(({ body }) => expect(body.active).toBe(true));
+    await request(app.getHttpServer()).patch(`/api/inquiries/${secondInquiry.body.id}/respond`).set('Authorization', `Bearer ${teacherToken}`).send({ status: 'accepted' }).expect(200);
+
+    const supportKey = randomUUID();
+    const ticket = await request(app.getHttpServer()).post('/api/support/tickets').set('Authorization', `Bearer ${studentToken}`)
+      .send({ requestKey: supportKey, category: 'bug', subject: 'A controlled support test', message: 'A disposable test report for the support workflow.', inquiryId }).expect(201);
+    eventEntityIds.push(ticket.body.id);
+    await request(app.getHttpServer()).get(`/api/support/tickets/${ticket.body.id}`).set('Authorization', `Bearer ${secondToken}`).expect(404);
+    await request(app.getHttpServer()).post(`/api/support/tickets/${ticket.body.id}/messages`).set('Authorization', `Bearer ${studentToken}`).send({ body: 'Cannot self-resolve', status: 'resolved' }).expect(403);
+    await request(app.getHttpServer()).post(`/api/admin/support-tickets/${ticket.body.id}/messages`).set('Authorization', `Bearer ${adminToken}`).send({ body: 'The disposable test issue is resolved.', status: 'resolved' }).expect(201);
+    await request(app.getHttpServer()).get(`/api/support/tickets/${ticket.body.id}`).set('Authorization', `Bearer ${studentToken}`).expect(200).expect(({ body }) => {
+      expect(body.status).toBe('resolved'); expect(body.messages).toHaveLength(1);
+    });
+
+    await request(app.getHttpServer()).post('/api/reviews').set('Authorization', `Bearer ${studentToken}`).send({ inquiryId, rating: 5, body: 'Too early to review.' }).expect(400);
+    await request(app.getHttpServer()).patch(`/api/inquiries/${inquiryId}/lesson`).set('Authorization', `Bearer ${studentToken}`).send({ action: 'confirm_completed' }).expect(400);
+    const pastStart = new Date(Date.now() - 7200000).toISOString();
+    const pastEnd = new Date(Date.now() - 3600000).toISOString();
+    const movedFixture = await adminClient.from('inquiries').update({ requested_start_at: pastStart, requested_end_at: pastEnd }).eq('id', inquiryId);
+    if (movedFixture.error) throw movedFixture.error;
+    await request(app.getHttpServer()).patch(`/api/inquiries/${inquiryId}/lesson`).set('Authorization', `Bearer ${studentToken}`).send({ action: 'confirm_completed' }).expect(200)
+      .expect(({ body }) => expect(body.lesson_status).toBe('awaiting'));
+    await request(app.getHttpServer()).patch(`/api/inquiries/${inquiryId}/lesson`).set('Authorization', `Bearer ${teacherToken}`).send({ action: 'confirm_completed' }).expect(200)
+      .expect(({ body }) => expect(body.lesson_status).toBe('completed'));
+
+    const createdReview = await request(app.getHttpServer())
       .post('/api/reviews')
       .set('Authorization', `Bearer ${studentToken}`)
       .send({ inquiryId, rating: 5, body: 'Excellent teacher.' })
       .expect(201);
+    const reviewId = createdReview.body.id as string;
 
     await request(app.getHttpServer())
       .get(`/api/teachers/${teacherSlug}`)
@@ -296,6 +353,37 @@ describe('Marketplace journey (e2e)', () => {
         expect(body.average_rating).toBe(5);
         expect(body.user_id).toBeUndefined();
       });
+
+    await request(app.getHttpServer()).patch(`/api/reviews/${reviewId}`).send({ rating: 4 }).expect(401);
+    await request(app.getHttpServer()).patch(`/api/reviews/${reviewId}`).set('Authorization', `Bearer ${teacherToken}`).send({ rating: 4 }).expect(403);
+    await request(app.getHttpServer()).post(`/api/reviews/${reviewId}/reply`).set('Authorization', `Bearer ${studentToken}`).send({ body: 'Not the reviewed teacher' }).expect(403);
+    await request(app.getHttpServer()).post(`/api/reviews/${reviewId}/reply`).set('Authorization', `Bearer ${teacherToken}`).send({ body: 'Thank you for your feedback.' }).expect(201)
+      .expect(({ body }) => expect(body.teacher_reply_status).toBe('pending'));
+    await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}/reviews`).expect(200).expect(({ body }) => {
+      expect(body.items[0].teacher_reply).toBeNull();
+      expect(body.items[0].student_id).toBeUndefined();
+      expect(body.items[0].inquiry_id).toBeUndefined();
+    });
+    await request(app.getHttpServer()).get('/api/reviews/teacher').set('Authorization', `Bearer ${teacherToken}`).expect(200).expect(({ body }) => {
+      expect(body.items[0].teacher_reply_status).toBe('pending');
+      expect(body.items[0].student_id).toBeUndefined();
+    });
+    await request(app.getHttpServer()).patch(`/api/admin/reviews/${reviewId}/reply`).set('Authorization', `Bearer ${teacherToken}`).send({ status: 'published' }).expect(403);
+    await request(app.getHttpServer()).patch(`/api/admin/reviews/${reviewId}/reply`).set('Authorization', `Bearer ${adminToken}`).send({ status: 'published' }).expect(200);
+    await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}/reviews`).expect(200).expect(({ body }) => expect(body.items[0].teacher_reply).toBe('Thank you for your feedback.'));
+    await request(app.getHttpServer()).patch(`/api/reviews/${reviewId}`).set('Authorization', `Bearer ${studentToken}`).send({ rating: 4, body: 'An updated review.' }).expect(200).expect(({ body }) => {
+      expect(body.status).toBe('pending');
+      expect(body.teacher_reply).toBeNull();
+    });
+    await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}`).expect(200).expect(({ body }) => expect(body.review_count).toBe(0));
+    await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}/reviews`).expect(200).expect(({ body }) => expect(body.items).toHaveLength(0));
+    await request(app.getHttpServer()).patch(`/api/admin/reviews/${reviewId}`).set('Authorization', `Bearer ${adminToken}`).send({ status: 'published' }).expect(200);
+    await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}`).expect(200).expect(({ body }) => {
+      expect(body.review_count).toBe(1);
+      expect(body.average_rating).toBe(4);
+    });
+    await request(app.getHttpServer()).delete(`/api/reviews/${reviewId}`).set('Authorization', `Bearer ${studentToken}`).expect(200);
+    await request(app.getHttpServer()).get(`/api/teachers/${teacherSlug}`).expect(200).expect(({ body }) => expect(body.review_count).toBe(0));
 
     await request(app.getHttpServer())
       .get('/api/notifications/unread-count')

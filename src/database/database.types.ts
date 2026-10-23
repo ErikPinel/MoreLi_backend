@@ -23,6 +23,11 @@ export type EmailJob = {
   last_error: string | null
   created_at: string
   sent_at: string | null
+  provider?: string | null
+  provider_message_id?: string | null
+  provider_status?: string | null
+  provider_event_at?: string | null
+  rendered_message?: Json | null
 }
 
 export type Database = {
@@ -33,6 +38,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      support_tickets: {
+        Row: { id: string; user_id: string; request_key: string; category: 'support' | 'bug' | 'billing' | 'report' | 'onboarding'; subject: string; message: string; teacher_id: string | null; inquiry_id: string | null; status: 'open' | 'in_progress' | 'resolved' | 'rejected'; created_at: string; updated_at: string }
+        Insert: { user_id: string; request_key: string; category: string; subject: string; message: string }
+        Update: { status?: string; updated_at?: string }
+        Relationships: []
+      }
+      support_messages: {
+        Row: { id: string; ticket_id: string; author_id: string | null; author_role: 'user' | 'admin'; body: string; created_at: string }
+        Insert: { ticket_id: string; author_id: string; author_role: string; body: string }
+        Update: { body?: string }
+        Relationships: []
+      }
+      teacher_access: {
+        Row: { teacher_id: string; free_contact_used: boolean; paid_until: string | null; updated_at: string }
+        Insert: { teacher_id: string; free_contact_used?: boolean; paid_until?: string | null; updated_at?: string }
+        Update: { free_contact_used?: boolean; paid_until?: string | null; updated_at?: string }
+        Relationships: []
+      }
+      teacher_contact_grants: {
+        Row: { teacher_id: string; student_id: string; granted_at: string }
+        Insert: { teacher_id: string; student_id: string; granted_at?: string }
+        Update: { granted_at?: string }
+        Relationships: []
+      }
+      teacher_access_payments: {
+        Row: { id: string; teacher_id: string; amount_ils: number; reference: string; terms_accepted_at: string; terms_version: string; status: 'pending' | 'approved' | 'rejected'; reviewed_by: string | null; reviewed_at: string | null; review_note: string | null; period_start_at: string | null; period_end_at: string | null; created_at: string }
+        Insert: { teacher_id: string; reference: string }
+        Update: { status?: string; review_note?: string }
+        Relationships: []
+      }
+      email_delivery_events: {
+        Row: { event_id: string; provider_message_id: string; event_type: string; occurred_at: string; received_at: string }
+        Insert: { event_id: string; provider_message_id: string; event_type: string; occurred_at: string; received_at?: string }
+        Update: { event_type?: string }
+        Relationships: []
+      }
+      email_suppressions: {
+        Row: { recipient_hash: string; reason: string; created_at: string }
+        Insert: { recipient_hash: string; reason: string; created_at?: string }
+        Update: { reason?: string }
+        Relationships: []
+      }
       email_outbox: {
         Row: EmailJob
         Insert: Omit<EmailJob, 'id'> & { id?: string }
@@ -145,6 +192,11 @@ export type Database = {
       }
       inquiries: {
         Row: {
+          lesson_status?: 'needs_scheduling' | 'awaiting' | 'completed' | 'cancelled' | 'no_show_reported' | null
+          student_completed_at?: string | null
+          teacher_completed_at?: string | null
+          lesson_updated_at?: string | null
+          lesson_note?: string | null
           created_at: string
           id: string
           lesson_mode: string | null
@@ -396,6 +448,9 @@ export type Database = {
       }
       reviews: {
         Row: {
+          teacher_reply: string | null
+          teacher_reply_status: Database["public"]["Enums"]["review_status"] | null
+          teacher_reply_at: string | null
           body: string | null
           created_at: string
           id: string
@@ -407,6 +462,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          teacher_reply?: string | null
+          teacher_reply_status?: Database["public"]["Enums"]["review_status"] | null
+          teacher_reply_at?: string | null
           body?: string | null
           created_at?: string
           id?: string
@@ -418,6 +476,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          teacher_reply?: string | null
+          teacher_reply_status?: Database["public"]["Enums"]["review_status"] | null
+          teacher_reply_at?: string | null
           body?: string | null
           created_at?: string
           id?: string
@@ -655,6 +716,7 @@ export type Database = {
       }
       teacher_profiles: {
         Row: {
+          availability_customized?: boolean
           review_reason: string | null
           average_rating: number
           bio: string
@@ -704,6 +766,7 @@ export type Database = {
           years_experience?: number
         }
         Update: {
+          availability_customized?: boolean
           average_rating?: number
           bio?: string
           claimed_at?: string | null
@@ -808,6 +871,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      save_teacher_profile: { Args: { p_user_id: string; p_form: Json; p_submit_review: boolean }; Returns: Database['public']['Tables']['teacher_profiles']['Row'][] }
+      create_support_ticket: { Args: { p_user_id: string; p_request_key: string; p_category: string; p_subject: string; p_message: string; p_teacher_id: string | null; p_inquiry_id: string | null }; Returns: Json }
+      reply_support_ticket: { Args: { p_actor_id: string; p_ticket_id: string; p_body: string; p_status: string | null }; Returns: Json }
+      set_teacher_schedule: { Args: { p_teacher_id: string; p_slots: Json }; Returns: Database["public"]["Tables"]["teacher_availability"]["Row"][] }
+      update_lesson_state: { Args: { p_user_id: string; p_inquiry_id: string; p_action: string; p_note: string }; Returns: Database["public"]["Tables"]["inquiries"]["Row"][] }
+      teacher_access_summary: { Args: { p_user_id: string }; Returns: Json }
+      claim_teacher_access_payment: { Args: { p_user_id: string; p_reference: string; p_terms: boolean }; Returns: Json }
+      review_teacher_access_payment: { Args: { p_actor_id: string; p_payment_id: string; p_approve: boolean; p_note: string }; Returns: Json }
+      prepare_email_job: { Args: { p_id: string; p_lease: string; p_message: Json }; Returns: Json }
+      finish_resend_job: { Args: { p_id: string; p_lease: string; p_success: boolean; p_message_id: string | null; p_retryable: boolean; p_error_code: string | null; p_retry_after: number | null }; Returns: boolean }
+      record_resend_event: { Args: { p_event_id: string; p_message_id: string; p_type: string; p_occurred_at: string; p_job_id: string | null }; Returns: boolean }
       submit_teacher_onboarding: {
         Args: { p_user_id: string; p_form: Json };
         Returns: Database['public']['Tables']['teacher_profiles']['Row'][];
@@ -933,17 +1007,7 @@ export type Database = {
           p_review_id: string
           p_status: Database["public"]["Enums"]["review_status"]
         }
-        Returns: {
-          body: string | null
-          created_at: string
-          id: string
-          inquiry_id: string | null
-          rating: number
-          status: Database["public"]["Enums"]["review_status"]
-          student_id: string
-          teacher_id: string
-          updated_at: string
-        }[]
+        Returns: Database["public"]["Tables"]["reviews"]["Row"][]
         SetofOptions: {
           from: "*"
           to: "reviews"
@@ -1265,6 +1329,22 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      edit_owned_review: {
+        Args: { p_review_id: string; p_student_id: string; p_rating: number; p_body: string }
+        Returns: Database["public"]["Tables"]["reviews"]["Row"][]
+      }
+      delete_owned_review: {
+        Args: { p_review_id: string; p_student_id: string }
+        Returns: boolean
+      }
+      reply_to_review: {
+        Args: { p_review_id: string; p_teacher_user_id: string; p_body: string | null }
+        Returns: Database["public"]["Tables"]["reviews"]["Row"][]
+      }
+      moderate_review_reply: {
+        Args: { p_review_id: string; p_actor_id: string; p_status: Database["public"]["Enums"]["review_status"] }
+        Returns: Database["public"]["Tables"]["reviews"]["Row"][]
+      }
       submit_verified_review: {
         Args: {
           p_body: string
@@ -1272,17 +1352,7 @@ export type Database = {
           p_rating: number
           p_student_id: string
         }
-        Returns: {
-          body: string | null
-          created_at: string
-          id: string
-          inquiry_id: string | null
-          rating: number
-          status: Database["public"]["Enums"]["review_status"]
-          student_id: string
-          teacher_id: string
-          updated_at: string
-        }[]
+        Returns: Database["public"]["Tables"]["reviews"]["Row"][]
         SetofOptions: {
           from: "*"
           to: "reviews"
@@ -1295,6 +1365,9 @@ export type Database = {
       inquiry_status: "sent" | "viewed" | "accepted" | "declined" | "expired"
       match_status: "suggested" | "viewed" | "contacted" | "dismissed"
       notification_type:
+        | "billing_updated"
+        | "lesson_updated"
+        | "support_updated"
         | "inquiry_received"
         | "inquiry_accepted"
         | "inquiry_declined"

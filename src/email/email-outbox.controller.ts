@@ -7,6 +7,10 @@ export class EmailOutboxController {
   constructor(private readonly outbox: EmailOutboxService) {}
 
   @Roles('admin')
+  @Get('admin/email-delivery/configuration')
+  configuration() { return this.outbox.configuration(); }
+
+  @Roles('admin')
   @Get('admin/email-delivery')
   status() { return this.outbox.status(); }
 

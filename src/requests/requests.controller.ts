@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import type { AuthUser } from '../common/types/auth-user.type.js';
@@ -28,7 +28,7 @@ export class RequestsController {
   @Get(':id')
   findOne(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<StudentRequest> {
     return this.requestsService.findOne(user.sub, id);
   }
@@ -36,7 +36,7 @@ export class RequestsController {
   @Put(':id')
   update(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: CreateRequestDto,
   ): Promise<StudentRequest> {
     return this.requestsService.update(user.sub, id, dto);
@@ -45,8 +45,13 @@ export class RequestsController {
   @Post(':id/close')
   close(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<StudentRequest> {
     return this.requestsService.close(user.sub, id);
+  }
+
+  @Post(':id/reopen')
+  reopen(@CurrentUser() user: AuthUser, @Param('id', new ParseUUIDPipe()) id: string): Promise<StudentRequest> {
+    return this.requestsService.reopen(user.sub, id);
   }
 }

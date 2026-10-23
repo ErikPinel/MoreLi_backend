@@ -43,6 +43,10 @@ export class RequestsService {
     return this.requestsRepository.closeOwned(userId, requestId);
   }
 
+  reopen(userId: string, requestId: string): Promise<StudentRequest> {
+    return this.requestsRepository.reopenOwned(userId, requestId);
+  }
+
   validate(dto: CreateRequestDto): void {
     if (!dto.onlineOk && !dto.inPersonOk) {
       throw new BadRequestException('At least one teaching mode is required');

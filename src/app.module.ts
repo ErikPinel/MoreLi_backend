@@ -22,6 +22,8 @@ import { StorageModule } from './storage/storage.module.js';
 import { SubjectsModule } from './subjects/subjects.module.js';
 import { TeachersModule } from './teachers/teachers.module.js';
 import { UsersModule } from './users/users.module.js';
+import { AccessModule } from './access/access.module.js';
+import { SupportModule } from './support/support.module.js';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { UsersModule } from './users/users.module.js';
     AuthModule,
     AdminModule,
     UsersModule,
+    AccessModule,
+    SupportModule,
     TeachersModule,
     SubjectsModule,
     LevelsModule,

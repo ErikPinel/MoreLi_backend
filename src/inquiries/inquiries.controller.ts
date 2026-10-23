@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import type { AuthUser } from '../common/types/auth-user.type.js';
@@ -6,6 +6,7 @@ import {
   CreateInquiryDto,
   ListInquiriesDto,
   RespondInquiryDto,
+  LessonActionDto,
 } from './dto/inquiry.dto.js';
 import { InquiriesService } from './inquiries.service.js';
 import { Inquiry } from './inquiries.repository.js';
@@ -33,7 +34,7 @@ export class InquiriesController {
   @Roles('teacher')
   markViewed(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<Inquiry> {
     return this.inquiriesService.markViewed(user.sub, id);
   }
@@ -42,9 +43,17 @@ export class InquiriesController {
   @Roles('teacher')
   respond(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: RespondInquiryDto,
   ): Promise<Inquiry> {
     return this.inquiriesService.respond(user.sub, id, dto);
+  }
+
+  @Get(':id') @Roles('student','teacher')
+  findOne(@CurrentUser() user: AuthUser, @Param('id', new ParseUUIDPipe()) id: string) { return this.inquiriesService.findOne(user.sub, id); }
+
+  @Patch(':id/lesson') @Roles('student','teacher')
+  updateLesson(@CurrentUser() user: AuthUser, @Param('id', new ParseUUIDPipe()) id: string, @Body() dto: LessonActionDto) {
+    return this.inquiriesService.updateLesson(user.sub, id, dto);
   }
 }

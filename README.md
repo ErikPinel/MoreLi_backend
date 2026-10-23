@@ -1,6 +1,6 @@
 # Morali backend
 
-Current no-payment launch scope, outbox operations, Vercel configuration, verified
+Current manual-access product scope, outbox operations, deployment configuration, verified
 tests, and remaining gates are in [PRODUCTION_ROLLOUT.md](PRODUCTION_ROLLOUT.md)
 and [the governing plan](../PRODUCTION_MVP_PLAN.md). Public launch is not yet certified.
 
@@ -55,9 +55,11 @@ Create `.env` from `.env.example` and set:
 | `SUPABASE_PUBLISHABLE_KEY` | Public key used by Auth clients/tests |
 | `SUPABASE_SECRET_KEY` | Server-only service key |
 | `PUBLIC_APP_URL` | Public React origin used in transactional links |
-| `BREVO_API_KEY` | Server-only Brevo transactional email API key |
-| `BREVO_SENDER_EMAIL` | Sender verified in Brevo; required in production |
-| `BREVO_SENDER_NAME` | Transactional sender display name |
+| `RESEND_API_KEY` | Server-only Resend API key; never use a `VITE_*` variable |
+| `RESEND_FROM_EMAIL` | Sender on your own verified Resend domain; required in production |
+| `RESEND_FROM_NAME` | Transactional sender display name, default MoreLi |
+| `RESEND_WEBHOOK_SECRET` | Resend signing secret for verified delivery receipts; required in production |
+| `SUPPORT_EMAIL`, `SUPPORT_PHONE` | Public support/Bit contact; defaults erik.zusin@gmail.com and 0503939008 |
 | `ADMIN_NOTIFICATION_EMAIL` | Recipient for tutor-review notices |
 | `EMAIL_APPROVAL_SECRET` | Random 32+ character secret used to sign expiring approval links |
 
@@ -65,9 +67,9 @@ Create `.env` from `.env.example` and set:
 `SUPABASE_DB_PASSWORD` are provisioning-only values. Never expose the secret
 key, access token, or database password to React.
 
-Brevo email is optional in development and logs a warning when disabled.
+Resend email is optional in development and logs a warning when disabled.
 Production startup rejects incomplete email configuration. Enter secrets directly
-in the deployment secret store, verify the sender/domain in Brevo, and never put
+in the deployment secret store, verify the sender/domain in Resend, and never put
 the API key or approval secret in a client environment variable.
 
 ## Install And Run
@@ -92,13 +94,31 @@ checks, CORS allowlisting, and graceful shutdown hooks.
 
 Starting the API with `npm run start:dev` or `npm run start:prod` also starts email
 delivery. No cron, cron secret, or separate worker command is required. Configure
-`BREVO_API_KEY` and a verified `BREVO_SENDER_EMAIL` in the server environment.
+`RESEND_API_KEY` and a verified `RESEND_FROM_EMAIL` in the server environment.
 
 API mutations queue emails transactionally. The server processes a batch of up to
 10 immediately on startup, then checks again five seconds after each batch finishes.
+Messages are sent serially with 600ms spacing. The first rendered payload is stored
+and reused with the stable `moreli/<outbox-id>` Resend idempotency key. Resend retains
+idempotency keys for 24 hours; the database ledger remains the durable source of truth.
 Existing pending messages are included. Database leases and retry backoff remain in
 place; shutdown waits for the active batch. Missing development email configuration
 disables processing without consuming delivery attempts. Logs contain counts only.
+
+`ADMIN_NOTIFICATION_EMAIL` selects the admin alert inbox independently of support,
+Clerk login, and the sender. Restart the API after changing it. Existing frozen
+messages keep their original recipients; changing the setting does not resend them.
+The inbox setting does not grant admin permissions: the recipient must sign in
+with a verified account that has the `admin` role in `profiles`.
+
+A payment report queues an admin review alert and a separate teacher acknowledgement.
+The admin email includes the amount, Bit reference, report ID and Israel-time
+submission date, with one link to the exact authenticated payment review. That screen
+shows teacher contact details and requires explicit approval or a reason for denial.
+Teacher reviews, support tickets and inquiry activity also have targeted admin links.
+No email link changes application state merely by being opened. Inquiry subjects
+distinguish the student, teacher and admin messages. Review the pending queue before
+enabling a sender: startup also processes earlier queued jobs.
 
 `npm run email:check` remains a non-sending diagnostic after building. Standalone
 worker commands are optional maintenance tools, not required for normal operation.
@@ -107,8 +127,71 @@ Application contexts used by tests and maintenance do not auto-start delivery.
 Deploy this API as a continuously running Node process. Serverless platforms such as
 Vercel do not guarantee background timers; the existing Vercel scaffold alone is not
 a supported deployment for reliable automatic delivery. No Vercel Cron is configured.
-`sent` means Brevo accepted the request, not verified inbox delivery; verify delivery
-and bounce events in Brevo as well.
+`sent` means Resend accepted the request, not verified inbox delivery. Provider IDs,
+receipt status, safe failure codes, retry/dead-letter states and readiness appear in
+the admin email-delivery section. Missing sender configuration leaves jobs queued
+without consuming attempts. Permanent provider errors stop retrying; rate-limit
+hints are respected. Bounced/complained recipients are suppressed using hashed addresses.
+
+### Resend Production Setup
+
+For local owner-inbox testing only, `RESEND_FROM_EMAIL=onboarding@resend.dev` is
+supported. Direct test sends are limited to `RESEND_TEST_RECIPIENT_EMAIL` (falling
+back to `ADMIN_NOTIFICATION_EMAIL`), which must be the Resend account owner's
+address. This does not change the normal admin recipient or reply-to. Automatic and manual transactional queue
+processing are paused in this mode, preserving student/teacher jobs and attempts.
+The admin screen labels test mode. This does not enable delivery to arbitrary users
+and remains rejected when `NODE_ENV=production`.
+
+1. Rotate any key previously present in the client. The removed
+   `VITE_RESEND_API_KEY` setting must not be restored.
+2. Add and verify your sending domain in Resend, including its DNS records. Set
+   `RESEND_FROM_EMAIL` to a sender on that domain. `onboarding@resend.dev` is a test
+   sender and is rejected by production validation.
+3. Register `POST https://<api-domain>/api/webhooks/resend` in Resend for
+   `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`,
+   `email.complained`, `email.failed`, and `email.suppressed`.
+4. Store the endpoint signing secret as server-only `RESEND_WEBHOOK_SECRET`.
+   Verification uses the raw request body and Svix headers; tampered requests are
+   rejected. Event IDs are deduplicated, older events cannot downgrade delivery,
+   and database failures return an error so Resend can retry the receipt.
+5. Review pending/dead jobs before enabling delivery. Send controlled test events
+   to inboxes you own and verify both provider acceptance and delivery/bounce state.
+
+On 2026-10-21, the configured Resend account returned no verified sending domains;
+no production Resend delivery or inbox receipt was certified in this workspace.
+
+### Teacher Access And Engagement Workflows
+
+Existing teacher edits use `PUT /api/teachers/me/profile` and the service-role-only
+`save_teacher_profile` transaction. Identity/contact details, teaching details,
+subjects, levels, service areas and availability commit together or all roll back.
+Incomplete private drafts remain supported; review submission validates completeness.
+Migration `20261022190000_atomic_teacher_profile` was installed, ledgered and its
+server/browser permissions verified.
+
+- One lifetime free new-student acceptance per teacher. Existing accepted contacts
+  are backfilled as grants and remain visible; repeated contact with an already
+  accepted student does not consume another allowance.
+- Afterward, accepting a new student requires an admin-approved ILS 60 monthly
+  access period. Payment is external via Bit; a claim does not activate access.
+  Teacher locks, unique pending claims/references and repeat-safe admin decisions
+  prevent concurrent free-contact or payment-retry bypasses.
+- Accepted times cannot overlap another accepted awaiting lesson. Completion is
+  explicit and requires both participants after the selected end. Cancellation and
+  no-show reports are distinct; new reviews require confirmed completion.
+- The public calendar uses Israel timezone, teacher weekly slots (09–21 defaults),
+  accepted busy intervals and Hebcal location-based Shabbat boundaries. Missing
+  coordinates are clearly labeled as a Jerusalem fallback. An explicitly empty
+  teacher schedule stays closed.
+- Support/bug/billing/report tickets have owner-scoped conversations, idempotent
+  creation, bounded usage, admin status decisions, notifications and safe email links.
+- Admin email buttons open authenticated event-specific screens. No GET request,
+  link preview, or email scanner can approve a teacher, payment or support decision.
+
+Required migrations, in order: `20261021220000`, `20261021220500`, `20261021221000`,
+`20261021222000`, `20261021223000`, `20261021224000`, `20261021225000`.
+The enum migration must commit before later migrations use its new values.
 
 ## API Surface
 

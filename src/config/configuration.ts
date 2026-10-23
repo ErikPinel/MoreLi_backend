@@ -23,11 +23,14 @@ export default () => ({
         'https://noted-caribou-6267.clerk.accounts.dev',
   },
   email: {
-    brevoApiKey: process.env.BREVO_API_KEY,
-    senderEmail: process.env.BREVO_SENDER_EMAIL,
-    senderName: process.env.BREVO_SENDER_NAME ?? 'MoreLi',
+    resendApiKey: process.env.RESEND_API_KEY,
+    webhookSecret: process.env.RESEND_WEBHOOK_SECRET,
+    senderEmail: process.env.RESEND_FROM_EMAIL,
+    senderName: process.env.RESEND_FROM_NAME ?? 'MoreLi',
     adminEmail: process.env.ADMIN_NOTIFICATION_EMAIL ?? 'erik.zusin@gmail.com',
+    testRecipientEmail: process.env.RESEND_TEST_RECIPIENT_EMAIL,
     approvalSecret: process.env.EMAIL_APPROVAL_SECRET,
   },
+  support: { email: process.env.SUPPORT_EMAIL ?? 'erik.zusin@gmail.com', phone: process.env.SUPPORT_PHONE ?? '0503939008' },
   publicAppUrl: process.env.PUBLIC_APP_URL ?? 'http://localhost:5173',
 });

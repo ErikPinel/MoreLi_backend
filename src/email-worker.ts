@@ -17,8 +17,8 @@ async function bootstrap() {
   process.once('SIGTERM', shutdown);
   try {
     const config = app.get(ConfigService);
-    if (!config.get<string>('email.brevoApiKey') || !config.get<string>('email.senderEmail')) {
-      throw new Error('Configure BREVO_API_KEY and BREVO_SENDER_EMAIL before starting delivery');
+    if (!config.get<string>('email.resendApiKey') || !config.get<string>('email.senderEmail')) {
+      throw new Error('Configure RESEND_API_KEY and a verified RESEND_FROM_EMAIL before starting delivery');
     }
     const worker = app.get(EmailOutboxService);
     if (args.includes('--check')) {

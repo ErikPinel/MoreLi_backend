@@ -4,6 +4,7 @@ import { AdminRepository } from './admin.repository.js';
 import {
   ListAdminReviewsDto,
   ListAdminTeachersDto,
+  ListTeacherHistoryDto,
   ModerateReviewDto,
   ModerateTeacherDto,
   CatalogItemDto,
@@ -53,6 +54,11 @@ export class AdminService {
       (query.page - 1) * query.limit,
       query.limit + 1,
     );
+    return this.page(items, query.page, query.limit);
+  }
+
+  async findTeacherHistory(query: ListTeacherHistoryDto) {
+    const items = await this.adminRepository.findTeacherHistory(query, (query.page - 1) * query.limit, query.limit + 1);
     return this.page(items, query.page, query.limit);
   }
 

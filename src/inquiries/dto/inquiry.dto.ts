@@ -72,3 +72,8 @@ export class ListInquiriesDto {
   @Max(50)
   limit = 20;
 }
+
+export class LessonActionDto {
+  @IsIn(['confirm_completed','cancel','report_no_show']) action: 'confirm_completed' | 'cancel' | 'report_no_show';
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
+}

@@ -6,6 +6,7 @@ import {
 } from './availability.repository.js';
 import { ReplaceAvailabilityDto } from './dto/availability.dto.js';
 import { isAvailableAt } from './availability-time.js';
+import { defaultWeeklyWindows } from './lesson-calendar.js';
 
 @Injectable()
 export class AvailabilityService {
@@ -22,6 +23,7 @@ export class AvailabilityService {
 
   async findMine(userId: string) {
     const teacher = await this.requireTeacher(userId);
+    if (teacher.availability_customized === false) return defaultWeeklyWindows().map((slot, index) => ({ ...slot, id: `default-${index}`, teacher_id: teacher.id, timezone: 'Asia/Jerusalem', created_at: new Date(0).toISOString(), updated_at: new Date(0).toISOString() }));
     return this.availabilityRepository.findByTeacherId(teacher.id);
   }
 

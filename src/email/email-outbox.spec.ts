@@ -22,10 +22,11 @@ describe('Transactional marketplace email outbox', () => {
     `);
     await db.exec(await readFile(new URL('../../supabase/migrations/20260912210000_no_payment_mvp_delivery.sql', import.meta.url), 'utf8'));
     await db.exec(await readFile(new URL('../../supabase/migrations/20260913002000_hebrew_lesson_mode_labels.sql', import.meta.url), 'utf8'));
+    await db.exec(await readFile(new URL('../../supabase/migrations/20261021220000_resend_delivery.sql', import.meta.url), 'utf8'));
   }, 30000);
   afterAll(async () => { await db.close(); });
   beforeEach(async () => {
-    await db.exec('truncate public.email_outbox, public.teacher_review_audit, public.inquiries, public.teacher_profiles, public.profiles cascade');
+    await db.exec('truncate public.email_delivery_events, public.email_suppressions, public.email_outbox, public.teacher_review_audit, public.inquiries, public.teacher_profiles, public.profiles cascade');
     for (const [id, role] of [[student, 'student'], [tutor, 'teacher'], [admin, 'admin']]) {
       await db.query('insert into profiles(id, first_name, last_name, role, contact_email, phone) values ($1, $2, $3, $4, $5, $6)',
         [id, role, 'Test', role, `${role}@example.com`, '0500000000']);
@@ -98,5 +99,48 @@ describe('Transactional marketplace email outbox', () => {
     const decision = await db.query<{ actor_id: string; reason: string }>("select actor_id, reason from teacher_review_audit where next_status = 'draft'");
     expect(decision.rows[0]).toEqual({ actor_id: admin, reason: 'Please complete your bio' });
     expect((await db.query("select id from email_outbox where event_type = 'teacher.rejected'")).rows).toHaveLength(2);
+  });
+
+  it('freezes message snapshots for retries and records provider acceptance separately from delivery', async () => {
+    const claimed = (await db.query<{ id: string; lease_token: string }>('select * from claim_email_jobs(1)')).rows[0];
+    const snapshot = { from: 'mail@example.com', to: ['recipient@example.com'], subject: 'Original', html: '<p>Original</p>', text: 'Original' };
+    const prepared = await db.query<{ prepare_email_job: typeof snapshot }>('select prepare_email_job($1,$2,$3)', [claimed.id, claimed.lease_token, snapshot]);
+    expect(prepared.rows[0].prepare_email_job).toEqual(snapshot);
+    const repeated = await db.query<{ prepare_email_job: typeof snapshot }>('select prepare_email_job($1,$2,$3)', [claimed.id, claimed.lease_token, { ...snapshot, subject: 'Changed' }]);
+    expect(repeated.rows[0].prepare_email_job.subject).toBe('Original');
+    await db.query('select finish_resend_job($1,$2,true,$3,false,null,null)', [claimed.id, claimed.lease_token, 'provider-1']);
+    const result = (await db.query<{ status: string; provider_status: string }>('select status,provider_status from email_outbox where id=$1', [claimed.id])).rows[0];
+    expect(result).toEqual({ status: 'sent', provider_status: 'accepted' });
+  });
+
+  it('deduplicates receipts, prevents event downgrades, and suppresses bounced recipients', async () => {
+    const claimed = (await db.query<{ id: string; lease_token: string }>('select * from claim_email_jobs(1)')).rows[0];
+    await db.query('select prepare_email_job($1,$2,$3)', [claimed.id, claimed.lease_token, { to: ['recipient@example.com'] }]);
+    await db.query("select record_resend_event('delivered-1','provider-1','email.delivered','2030-01-01',$1)", [claimed.id]);
+    await db.query("select record_resend_event('delivered-1','provider-1','email.delivered','2030-01-01',$1)", [claimed.id]);
+    await db.query("select record_resend_event('sent-late','provider-1','email.sent','2030-01-02',$1)", [claimed.id]);
+    expect((await db.query<{ provider_status: string }>('select provider_status from email_outbox where id=$1', [claimed.id])).rows[0].provider_status).toBe('delivered');
+    await db.query("select record_resend_event('bounced-1','provider-1','email.bounced','2030-01-03',$1)", [claimed.id]);
+    expect((await db.query('select * from email_delivery_events')).rows).toHaveLength(3);
+    expect((await db.query('select recipient_hash from email_suppressions')).rows).toHaveLength(1);
+    await db.query('select finish_resend_job($1,$2,true,$3,false,null,null)', [claimed.id, claimed.lease_token, 'provider-1']);
+    expect((await db.query<{ provider_status: string }>('select provider_status from email_outbox where id=$1', [claimed.id])).rows[0].provider_status).toBe('bounced');
+  });
+
+  it('retains rate-limited jobs with the requested backoff and stops permanent failures', async () => {
+    const jobs = (await db.query<{ id: string; lease_token: string }>('select * from claim_email_jobs(2)')).rows;
+    await db.query("select finish_resend_job($1,$2,false,null,true,'rate_limit_exceeded',120)", [jobs[0].id, jobs[0].lease_token]);
+    await db.query("select finish_resend_job($1,$2,false,null,false,'invalid_from_address',null)", [jobs[1].id, jobs[1].lease_token]);
+    const pending = (await db.query<{ status: string; delayed: boolean }>("select status,available_at > now()+interval '100 seconds' as delayed from email_outbox where id=$1", [jobs[0].id])).rows[0];
+    expect(pending).toEqual({ status: 'pending', delayed: true });
+    expect((await db.query<{ status: string }>('select status from email_outbox where id=$1', [jobs[1].id])).rows[0].status).toBe('dead');
+    expect((await db.query<{ allowed: boolean }>("select has_function_privilege('authenticated','public.record_resend_event(text,text,text,timestamptz,uuid)','execute') as allowed")).rows[0].allowed).toBe(false);
+  });
+
+  it('does not resend when a signed delivery receipt beats an unknown send timeout', async () => {
+    const claimed = (await db.query<{ id: string; lease_token: string }>('select * from claim_email_jobs(1)')).rows[0];
+    await db.query("select record_resend_event('fast-receipt','provider-fast','email.delivered',now(),$1)", [claimed.id]);
+    await db.query("select finish_resend_job($1,$2,false,null,true,'network_or_timeout',null)", [claimed.id, claimed.lease_token]);
+    expect((await db.query<{ status: string; provider_status: string }>('select status,provider_status from email_outbox where id=$1', [claimed.id])).rows[0]).toEqual({ status: 'sent', provider_status: 'delivered' });
   });
 });

@@ -36,6 +36,8 @@ describe('Atomic teacher onboarding', () => {
     await db.exec(await migration('20260912183000_require_tutor_contact_and_city'));
     await db.exec(await migration('20260912210000_no_payment_mvp_delivery'));
     await db.exec(await migration('20260912220000_atomic_teacher_onboarding'));
+    await db.exec('alter table public.teacher_profiles add column availability_customized boolean not null default false');
+    await db.exec(await migration('20261022190000_atomic_teacher_profile'));
     await db.exec(`insert into subjects(id,name_he,name_en,slug) values(1,'Math','Math','math');
       insert into levels(id,name_he,name_en,slug) values(1,'School','School','school');
       insert into cities(id,name_he,name_en,slug) values(1,'Jerusalem','Jerusalem','jerusalem');`);
@@ -93,5 +95,40 @@ describe('Atomic teacher onboarding', () => {
     await submit();
     expect((await db.query('select id from teacher_profiles')).rows).toHaveLength(1);
     expect((await db.query("select id from email_outbox where event_type like 'teacher.%'")).rows).toHaveLength(jobs.length);
+  });
+
+  it('atomically saves all existing teacher sections without changing publication status', async () => {
+    await submit();
+    const updated = { ...form, firstName: 'Updated', headline: 'Updated teacher', hourlyPrice: 150, slots: [{ dayOfWeek: 2, startTime: '10:00', endTime: '12:00' }] };
+    const result = await db.query('select * from save_teacher_profile($1,$2,false)', [student, JSON.stringify(updated)]);
+    expect(result.rows[0]).toMatchObject({ headline: 'Updated teacher', hourly_price: 150, profile_status: 'pending', availability_customized: true });
+    expect((await db.query('select first_name from profiles where id=$1', [student])).rows[0]).toMatchObject({ first_name: 'Updated' });
+    expect((await db.query('select day_of_week from teacher_availability')).rows).toEqual([{ day_of_week: 2 }]);
+  });
+
+  it('rolls back identity, price and collections when any section is invalid', async () => {
+    await submit();
+    await expect(db.query('select * from save_teacher_profile($1,$2,false)', [student, JSON.stringify({ ...form, firstName: 'Must roll back', hourlyPrice: 200, levelIds: [99999] })])).rejects.toThrow();
+    expect((await db.query('select first_name from profiles where id=$1', [student])).rows[0]).toMatchObject({ first_name: form.firstName });
+    expect((await db.query('select hourly_price from teacher_profiles')).rows[0]).toMatchObject({ hourly_price: 100 });
+    expect((await db.query('select level_id from teacher_levels')).rows).toEqual([{ level_id: 1 }]);
+  });
+
+  it('rejects non-teacher accounts, unowned avatars and invalid availability', async () => {
+    await expect(db.query('select * from save_teacher_profile($1,$2,false)', [student, JSON.stringify(form)])).rejects.toThrow('Teacher account');
+    await submit();
+    for (const overrides of [{ avatarPath: 'other/avatar.png' }, { slots: [{ dayOfWeek: 0, startTime: '16:00', endTime: '18:00', timezone: 'UTC' }] }, { slots: [...form.slots, { dayOfWeek: 0, startTime: '17:00', endTime: '19:00' }] }]) {
+      await expect(db.query('select * from save_teacher_profile($1,$2,false)', [student, JSON.stringify({ ...form, ...overrides })])).rejects.toThrow();
+    }
+  });
+
+  it('saves an incomplete private draft but does not allow it to be submitted for review', async () => {
+    await submit();
+    await db.query("update teacher_profiles set profile_status='draft' where user_id=$1", [student]);
+    const incomplete = { ...form, headline: '', bio: '', hourlyPrice: 0, subjectSlugs: [], levelIds: [], slots: [] };
+    const result = await db.query('select * from save_teacher_profile($1,$2,false)', [student, JSON.stringify(incomplete)]);
+    expect(result.rows[0]).toMatchObject({ profile_status: 'draft', headline: '', hourly_price: 0 });
+    await expect(db.query('select * from save_teacher_profile($1,$2,true)', [student, JSON.stringify(incomplete)])).rejects.toThrow();
+    expect((await db.query('select profile_status from teacher_profiles')).rows[0]).toMatchObject({ profile_status: 'draft' });
   });
 });

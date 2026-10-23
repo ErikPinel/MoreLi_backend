@@ -1,6 +1,16 @@
-import { BrevoClient } from '@getbrevo/brevo';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
+
+export type EmailDeliveryResult = {
+  accepted: boolean;
+  messageId?: string;
+  retryable: boolean;
+  errorCode?: string;
+  retryAfterSeconds?: number;
+};
+
+export type EmailSnapshot = { from: string; to: string[]; replyTo: string; subject: string; text: string; html: string; tags: { name: string; value: string }[] };
 
 type Contact = {
   email: string | null;
@@ -19,21 +29,38 @@ type LessonDetails = {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly client?: BrevoClient;
+  private readonly client?: Resend;
   private readonly senderEmail?: string;
   private readonly senderName: string;
   private readonly adminEmail: string;
+  private readonly testRecipientEmail: string;
 
   constructor(private readonly configService: ConfigService) {
-    const apiKey = configService.get<string>('email.brevoApiKey');
+    const apiKey = configService.get<string>('email.resendApiKey');
     this.senderEmail = configService.get<string>('email.senderEmail') || undefined;
     this.senderName = configService.get<string>('email.senderName') ?? 'MoreLi';
     this.adminEmail = configService.get<string>('email.adminEmail') ?? 'erik.zusin@gmail.com';
+    this.testRecipientEmail = configService.get<string>('email.testRecipientEmail') ?? this.adminEmail;
     if (apiKey && this.senderEmail) {
-      this.client = new BrevoClient({ apiKey, timeoutInSeconds: 8, maxRetries: 0 });
+      this.client = new Resend(apiKey);
     } else {
-      this.logger.warn('Brevo email delivery is disabled; configure BREVO_API_KEY and BREVO_SENDER_EMAIL');
+      this.logger.warn('Resend delivery is disabled; configure RESEND_API_KEY and a verified RESEND_FROM_EMAIL');
     }
+  }
+
+  isConfigured(): boolean { return Boolean(this.client && this.senderEmail); }
+
+  isTestSender(): boolean { return (this.senderEmail ?? '').toLowerCase().endsWith('@resend.dev'); }
+
+  prepareJob(input: { id?: string; email: string; subject: string; text: string; html: string }): EmailSnapshot {
+    return { from: `${this.senderName.replace(/[<>\r\n]/g, '')} <${this.senderEmail}>`, to: [input.email], replyTo: this.adminEmail,
+      subject: input.subject, text: input.text, html: emailLayout(input.html),
+      tags: [{ name: 'category', value: 'marketplace-transactional' }, ...(input.id ? [{ name: 'outbox_id', value: input.id }] : [])] };
+  }
+
+  async sendJob(input: { id: string; email: string; subject: string; text: string; html: string; snapshot?: EmailSnapshot }): Promise<EmailDeliveryResult> {
+    return this.sendMessage({ to: { email: input.email, name: 'MoreLi' }, subject: input.subject,
+      text: input.text, html: input.html, tag: 'marketplace-transactional', idempotencyKey: input.id, snapshot: input.snapshot });
   }
 
   sendTeacherReviewSubmitted(input: {
@@ -145,22 +172,31 @@ export class EmailService {
     tag: string;
     idempotencyKey?: string;
   }): Promise<boolean> {
-    if (!this.client || !this.senderEmail) return false;
+    return (await this.sendMessage(input)).accepted;
+  }
+
+  private async sendMessage(input: { to: Contact; subject: string; text: string; html: string; tag: string; idempotencyKey?: string; snapshot?: EmailSnapshot }): Promise<EmailDeliveryResult> {
+    if (!this.client || !this.senderEmail) return { accepted: false, retryable: true, errorCode: 'configuration_missing' };
+    if (!input.to.email) return { accepted: false, retryable: false, errorCode: 'recipient_missing' };
     try {
-      await this.client.transactionalEmails.sendTransacEmail({
-        sender: { email: this.senderEmail, name: this.senderName },
-        to: [{ email: input.to.email!, name: input.to.name }],
-        replyTo: { email: this.adminEmail, name: 'MoreLi support' },
-        subject: input.subject,
-        textContent: input.text,
-        htmlContent: emailLayout(input.html),
-        tags: [input.tag],
-        headers: input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
-      });
-      return true;
+      const snapshot = input.snapshot ?? this.prepareJob({ id: input.idempotencyKey, email: input.to.email, subject: input.subject, text: input.text, html: input.html });
+      if (this.isTestSender() && snapshot.to.some((address) => address.trim().toLowerCase() !== this.testRecipientEmail.trim().toLowerCase())) {
+        return { accepted: false, retryable: true, errorCode: 'test_sender_recipient_restricted' };
+      }
+      const { data, error, headers } = await this.client.emails.send(snapshot,
+        { ...(input.idempotencyKey ? { idempotencyKey: `moreli/${input.idempotencyKey}` } : {}), signal: AbortSignal.timeout(10000) });
+      if (error) {
+        const status = error.statusCode ?? 0;
+        const retryable = status === 0 || status === 429 || status >= 500 || error.name === 'concurrent_idempotent_requests' || ['daily_quota_exceeded', 'monthly_quota_exceeded'].includes(error.name);
+        const retryAfter = Number(headers?.['retry-after']);
+        this.logger.warn(`Resend delivery rejected: code=${error.name}, status=${status}`);
+        return { accepted: false, retryable, errorCode: error.name,
+          ...(error.name === 'daily_quota_exceeded' ? { retryAfterSeconds: 86400 } : Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: Math.min(86400, Math.ceil(retryAfter)) } : {}) };
+      }
+      return data?.id ? { accepted: true, retryable: false, messageId: data.id } : { accepted: false, retryable: true, errorCode: 'missing_provider_id' };
     } catch {
-      this.logger.error(`Brevo delivery failed for ${input.tag}`);
-      return false;
+      this.logger.warn('Resend delivery interrupted: network error or timeout');
+      return { accepted: false, retryable: true, errorCode: 'network_or_timeout' };
     }
   }
 }
@@ -180,7 +216,7 @@ function formatSchedule(details: LessonDetails): string {
 }
 
 function emailLayout(content: string): string {
-  return `<div dir="ltr" style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#102a43"><h1 style="font-size:24px">MoreLi</h1>${content}<p style="color:#627d98;font-size:12px">This is a transactional message about your MoreLi account.</p></div>`;
+  return `<div dir="rtl" lang="he" style="font-family:Arial,sans-serif;max-width:620px;margin:auto;padding:24px;color:#0c244f"><h1 style="font-size:24px;border-bottom:3px solid #ff5a0a;padding-bottom:12px">מורהלי</h1>${content}<p style="color:#627d98;font-size:12px">הודעה תפעולית על הפעילות בחשבון מורהלי. לתמיכה אפשר להשיב להודעה.</p></div>`;
 }
 
 function escapeHtml(value: string): string {

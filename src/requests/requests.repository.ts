@@ -67,7 +67,7 @@ export class RequestsRepository {
       })
       .eq('id', requestId)
       .eq('student_id', userId)
-      .eq('status', 'open')
+      .in('status', ['open', 'matched'])
       .select()
       .maybeSingle();
     if (error) throwSupabaseError(error, 'Failed to update request');
@@ -117,6 +117,15 @@ export class RequestsRepository {
       .maybeSingle();
     if (error) throwSupabaseError(error, 'Failed to close request');
     if (!data) throw new NotFoundException('Open request not found');
+    return data;
+  }
+
+  async reopenOwned(userId: string, requestId: string): Promise<StudentRequest> {
+    const { data, error } = await this.supabase.client.from('student_requests')
+      .update({ status: 'open' }).eq('id', requestId).eq('student_id', userId)
+      .eq('status', 'closed').select().maybeSingle();
+    if (error) throwSupabaseError(error, 'לא ניתן לפתוח את הבקשה מחדש');
+    if (!data) throw new NotFoundException('Closed request not found');
     return data;
   }
 }

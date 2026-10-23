@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
-import { json, NextFunction, Request, Response } from 'express';
+import { json, raw, NextFunction, Request, Response } from 'express';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor.js';
 
 type TracedRequest = Request & { requestId?: string };
@@ -23,6 +23,9 @@ export function configureApp(
     response.setHeader('x-request-id', requestId);
     next();
   });
+  app.enableCors({
+    origin: configService.getOrThrow<string[]>('app.corsOrigins'),
+  });
   app.use(
     rateLimit({
       windowMs: configService.getOrThrow<number>('app.rateLimitWindowMs'),
@@ -32,9 +35,7 @@ export function configureApp(
       skip: (request) => request.path === '/api/health',
     }),
   );
-  app.enableCors({
-    origin: configService.getOrThrow<string[]>('app.corsOrigins'),
-  });
+  app.use('/api/webhooks/resend', raw({ type: 'application/json', limit: '256kb' }));
   app.use(
     ['/api/admin/professions/bulk', '/api/admin/professions/replace',
       '/api/admin/cities/bulk', '/api/admin/cities/replace'],

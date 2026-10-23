@@ -6,6 +6,7 @@ import {
   CatalogItemDto,
   ListAdminReviewsDto,
   ListAdminTeachersDto,
+  ListTeacherHistoryDto,
   ModerateReviewDto,
   ModerateTeacherDto,
 } from './dto/admin.dto.js';
@@ -32,7 +33,8 @@ export class AdminRepository {
       .order('created_at', { ascending: false })
       .order('id')
       .range(offset, offset + limit - 1);
-    if (query.status) request = request.eq('profile_status', query.status);
+    if (query.teacherId) request = request.eq('id', query.teacherId);
+    else if (query.status) request = request.eq('profile_status', query.status);
     if (query.verification) {
       request = request.eq('verification_status', query.verification);
     }
@@ -56,6 +58,24 @@ export class AdminRepository {
     });
     if (error) throwSupabaseError(error, 'Failed to moderate teacher');
     return data[0];
+  }
+
+  async findTeacherHistory(query: ListTeacherHistoryDto, offset: number, limit: number) {
+    let request = this.supabase.client.from('teacher_review_audit').select('*')
+      .order('created_at', { ascending: false }).order('id').range(offset, offset + limit - 1);
+    if (query.teacherId) request = request.eq('teacher_id', query.teacherId);
+    if (query.status) request = request.eq('next_status', query.status);
+    const { data, error } = await request;
+    if (error) throwSupabaseError(error, 'Failed to load teacher decision history');
+    const teacherIds = [...new Set(data.map(event => event.teacher_id))];
+    const actorIds = [...new Set(data.map(event => event.actor_id).filter(id => id !== null))];
+    const [teachers, actors] = await Promise.all([
+      teacherIds.length ? this.supabase.client.from('teacher_profiles').select('id,headline,profile:profiles!teacher_profiles_user_id_fkey(first_name,last_name,contact_email)').in('id', teacherIds) : { data: [], error: null },
+      actorIds.length ? this.supabase.client.from('profiles').select('id,first_name,last_name,contact_email').in('id', actorIds) : { data: [], error: null },
+    ]);
+    if (teachers.error) throwSupabaseError(teachers.error, 'Failed to load teachers in decision history');
+    if (actors.error) throwSupabaseError(actors.error, 'Failed to load decision actors');
+    return data.map(event => ({ ...event, teacher: teachers.data?.find(teacher => teacher.id === event.teacher_id) ?? null, actor: actors.data?.find(actor => actor.id === event.actor_id) ?? null }));
   }
 
   async findTeacherReview(teacherId: string): Promise<TeacherReviewDetails> {

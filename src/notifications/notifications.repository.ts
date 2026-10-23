@@ -64,7 +64,12 @@ export class NotificationsRepository {
     const { data, error } = await this.supabase.client.rpc(
       'expire_stale_inquiries',
     );
-    if (error) throwSupabaseError(error, 'Failed to expire stale inquiries');
+    if (error) {
+      const code = /^[A-Z0-9]{5,8}$/.test(error.code)
+        ? error.code
+        : 'DATABASE_UNAVAILABLE';
+      throwSupabaseError(error, `Failed to expire stale inquiries (${code})`);
+    }
     return data;
   }
 }

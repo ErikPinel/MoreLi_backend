@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { TeachersRepository } from '../teachers/teachers.repository.js';
-import { CreateReviewDto, ListReviewsDto } from './dto/review.dto.js';
+import { CreateReviewDto, ListReviewsDto, ModerateReviewReplyDto, UpdateReviewDto } from './dto/review.dto.js';
 import { Review, ReviewsRepository } from './reviews.repository.js';
 
 @Injectable()
@@ -17,6 +17,12 @@ export class ReviewsService {
   findMine(userId: string): Promise<Review[]> {
     return this.reviewsRepository.findOwned(userId);
   }
+
+  update(userId: string, id: string, dto: UpdateReviewDto) { return this.reviewsRepository.updateOwned(userId, id, dto); }
+  remove(userId: string, id: string) { return this.reviewsRepository.deleteOwned(userId, id); }
+  reply(userId: string, id: string, body: string | null) { return this.reviewsRepository.reply(userId, id, body); }
+  moderateReply(userId: string, id: string, dto: ModerateReviewReplyDto) { return this.reviewsRepository.moderateReply(userId, id, dto); }
+  findReceived(userId: string, query: ListReviewsDto) { return this.reviewsRepository.findReceived(userId, query); }
 
   async findPublic(slug: string, query: ListReviewsDto) {
     const teacher = await this.teachersRepository.findPublicBySlug(slug);

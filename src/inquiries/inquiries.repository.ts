@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, Injectable, NotFoundException } from '@nestjs/common';
 import { throwSupabaseError } from '../common/database/supabase-error.js';
 import { Database } from '../database/database.types.js';
 import { SupabaseService } from '../database/supabase.service.js';
@@ -6,6 +6,7 @@ import {
   CreateInquiryDto,
   ListInquiriesDto,
   RespondInquiryDto,
+  LessonActionDto,
 } from './dto/inquiry.dto.js';
 
 export type Inquiry = Database['public']['Tables']['inquiries']['Row'];
@@ -56,6 +57,23 @@ export class InquiriesRepository {
       .maybeSingle();
     if (error) throwSupabaseError(error, 'Failed to load teacher profile');
     return data?.id ?? null;
+  }
+
+  async findOwnedDetail(userId: string, inquiryId: string): Promise<InquiryListItem> {
+    const teacherId = await this.findTeacherIdByUserId(userId);
+    let query = this.supabase.client.from('inquiries').select(`*, student:profiles!inquiries_student_id_fkey(id,first_name,last_name,avatar_path,phone,contact_email),
+      teacher:teacher_profiles!inquiries_teacher_id_fkey(id,slug,headline,profile:profiles!teacher_profiles_user_id_fkey(first_name,last_name,avatar_path,phone,contact_email))`).eq('id', inquiryId);
+    query = teacherId ? query.or(`student_id.eq.${userId},teacher_id.eq.${teacherId}`) : query.eq('student_id', userId);
+    const { data, error } = await query.maybeSingle();
+    if (error) throwSupabaseError(error, 'לא ניתן לטעון את הפנייה');
+    if (!data) throw new NotFoundException('הפנייה לא נמצאה');
+    return stripPendingContact(data as unknown as InquiryListItem);
+  }
+
+  async updateLesson(userId: string, inquiryId: string, dto: LessonActionDto): Promise<Inquiry> {
+    const { data, error } = await this.supabase.client.rpc('update_lesson_state', { p_user_id: userId, p_inquiry_id: inquiryId, p_action: dto.action, p_note: dto.note ?? '' });
+    if (error) throwSupabaseError(error, 'לא ניתן לעדכן את מצב השיעור');
+    return data[0];
   }
 
   async findAll(
@@ -134,6 +152,9 @@ export class InquiriesRepository {
         p_status: dto.status,
       },
     );
+    if (error?.code === 'P0001' && error.message.includes('TEACHER_ACCESS_REQUIRED')) {
+      throw new HttpException({ code: 'TEACHER_ACCESS_REQUIRED', message: 'המפגש הראשון עם תלמיד חדש ללא עלות נוצל. לקבלת תלמיד חדש נוסף נדרשת גישה חודשית מאושרת בסך 60 ש״ח.' }, 402);
+    }
     if (error) throwSupabaseError(error, 'Inquiry cannot be responded to');
     return data[0];
   }
@@ -142,6 +163,9 @@ export class InquiriesRepository {
 function stripPendingContact(item: InquiryListItem): InquiryListItem {
   if (item.status === 'accepted') return item;
   const result = { ...item };
+  if (typeof result.message === 'string') result.message = result.message
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[פרטי קשר זמינים לאחר אישור]')
+    .replace(/(?:\+972|0)[\d\s().-]{7,18}\d/g, '[פרטי קשר זמינים לאחר אישור]');
   if (isRecord(result.student)) {
     const { phone: _phone, contact_email: _email, ...student } = result.student;
     result.student = student;

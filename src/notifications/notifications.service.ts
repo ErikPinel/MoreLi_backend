@@ -11,6 +11,7 @@ import {
 } from './notifications.repository.js';
 
 const EXPIRY_INTERVAL_MS = 15 * 60 * 1000;
+const EXPIRY_RETRY_MS = 60 * 1000;
 
 @Injectable()
 export class NotificationsService
@@ -18,6 +19,8 @@ export class NotificationsService
 {
   private readonly logger = new Logger(NotificationsService.name);
   private expiryTimer?: NodeJS.Timeout;
+  private stopping = false;
+  private expiryFailures = 0;
 
   constructor(
     private readonly notificationsRepository: NotificationsRepository,
@@ -25,15 +28,11 @@ export class NotificationsService
 
   onApplicationBootstrap(): void {
     void this.expireStaleInquiries();
-    this.expiryTimer = setInterval(
-      () => void this.expireStaleInquiries(),
-      EXPIRY_INTERVAL_MS,
-    );
-    this.expiryTimer.unref();
   }
 
   onApplicationShutdown(): void {
-    if (this.expiryTimer) clearInterval(this.expiryTimer);
+    this.stopping = true;
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
   }
 
   async findAll(userId: string, query: ListNotificationsDto) {
@@ -65,11 +64,25 @@ export class NotificationsService
   }
 
   private async expireStaleInquiries(): Promise<void> {
+    let nextDelay = EXPIRY_INTERVAL_MS;
     try {
       const count = await this.notificationsRepository.expireStaleInquiries();
+      this.expiryFailures = 0;
       if (count > 0) this.logger.log(`Expired ${count} stale inquiries`);
     } catch (error) {
-      this.logger.error('Failed to expire stale inquiries', error);
+      this.expiryFailures += 1;
+      if (this.expiryFailures === 1) nextDelay = EXPIRY_RETRY_MS;
+      this.logger.error(
+        `Failed to expire stale inquiries; retrying in ${nextDelay / 1000} seconds`,
+        error,
+      );
+    }
+    if (!this.stopping) {
+      this.expiryTimer = setTimeout(
+        () => void this.expireStaleInquiries(),
+        nextDelay,
+      );
+      this.expiryTimer.unref();
     }
   }
 }

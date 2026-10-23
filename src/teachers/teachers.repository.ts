@@ -11,6 +11,7 @@ import {
 import { SearchTeachersDto } from './dto/search-teachers.dto.js';
 import { UpdateTeacherDto } from './dto/update-teacher.dto.js';
 import { SubmitOnboardingDto } from './dto/submit-onboarding.dto.js';
+import { SaveTeacherProfileDto } from './dto/save-teacher-profile.dto.js';
 
 const PUBLIC_TEACHER_SELECT = `
   id, slug, headline, bio, hourly_price, currency, years_experience,
@@ -212,6 +213,14 @@ export class TeachersRepository {
       .single();
     if (error) throwSupabaseError(error, 'Failed to load teacher review details');
     return data as unknown as TeacherReviewDetails;
+  }
+
+  async saveProfile(userId: string, dto: SaveTeacherProfileDto): Promise<TeacherProfile> {
+    const { data, error } = await this.supabase.client.rpc('save_teacher_profile', {
+      p_user_id: userId, p_form: JSON.parse(JSON.stringify(dto)) as Json, p_submit_review: dto.submitForReview,
+    });
+    if (error) throwSupabaseError(error, 'השמירה לא הושלמה. לא נשמרו שינויים; בדקו את הפרטים ונסו שוב.');
+    return data[0];
   }
 
   async updateOwned(
