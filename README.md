@@ -114,9 +114,21 @@ ignored `.vercel` directory; never log or commit those values. Build creates loc
 deployment output, not a live deployment. A successful local build still does not
 prove hosted API behavior.
 
-The middleware setup uses express-rate-limit's named export and Helmet's typed
-CommonJS default export. This preserves the existing middleware behavior while
-avoiding callable-default errors in Vercel's NodeNext module-resolution pass.
+The middleware setup uses express-rate-limit's named export and a static Helmet
+import so Vercel's dependency tracer includes the package. A typed factory handles
+the function/namespace default-export shapes inferred by the local and Vercel
+NodeNext checks. Do not replace the static import with `import = require`:
+TypeScript emits a `createRequire` alias that Vercel's tracer omitted, producing
+`Cannot find module 'helmet'` at runtime even though local compilation passed.
+
+The ignored local `.env` file is not deployed. Configure the required variables
+from the configuration table in the backend Vercel project's Production environment
+and redeploy. Production validation requires the Supabase URL/public/secret keys,
+a production Clerk issuer and `sk_live_` secret, matching public HTTPS
+`PUBLIC_APP_URL`/`CORS_ORIGIN`, Resend API key/verified sender/webhook secret,
+and a random 32+ character `EMAIL_APPROVAL_SECRET`. Do not use the backend API
+domain as `PUBLIC_APP_URL`: that value is the final frontend URL. Keep provisioning
+tokens and database passwords out of the deployed runtime.
 
 ### Automatic Email Delivery
 

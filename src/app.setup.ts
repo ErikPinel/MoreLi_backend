@@ -1,12 +1,18 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { rateLimit } from 'express-rate-limit';
-import helmet = require('helmet');
+import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
 import { json, raw, NextFunction, Request, Response } from 'express';
 import { RequestLoggingInterceptor } from './common/interceptors/request-logging.interceptor.js';
 
 type TracedRequest = Request & { requestId?: string };
+
+function createHelmetMiddleware(
+  factory: typeof import('helmet').default | typeof import('helmet'),
+) {
+  return typeof factory === 'function' ? factory() : factory.default();
+}
 
 export function configureApp(
   app: INestApplication,
@@ -16,7 +22,7 @@ export function configureApp(
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }
 
-  app.use(helmet.default());
+  app.use(createHelmetMiddleware(helmet));
   app.use((request: TracedRequest, response: Response, next: NextFunction) => {
     const requestId = request.header('x-request-id') || randomUUID();
     request.requestId = requestId;
