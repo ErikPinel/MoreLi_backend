@@ -98,7 +98,8 @@ checks, CORS allowlisting, and graceful shutdown hooks.
 ### Automatic Email Delivery
 
 Starting the API with `npm run start:dev` or `npm run start:prod` also starts email
-delivery. No cron, cron secret, or separate worker command is required. Configure
+delivery. On a continuously running Node host, no cron, cron secret, or separate
+worker command is required. Configure
 `RESEND_API_KEY` and a verified `RESEND_FROM_EMAIL` in the server environment.
 
 API mutations queue emails transactionally. The server processes a batch of up to
@@ -109,6 +110,34 @@ idempotency keys for 24 hours; the database ledger remains the durable source of
 Existing pending messages are included. Database leases and retry backoff remain in
 place; shutdown waits for the active batch. Missing development email configuration
 disables processing without consuming delivery attempts. Logs contain counts only.
+
+#### Vercel MVP: Best-Effort Delivery
+
+MVP hosting decision (2026-10-23): retain the existing runner and transactional
+outbox without adding a scheduler or changing the request handlers. Accept
+unbounded email delays and possible manual intervention on Vercel. This is not a
+guarantee that all queued emails will eventually send.
+
+The runner starts once per application instance, not once per HTTP request.
+Vercel can reuse a warm instance or suspend/terminate execution after a response.
+A cold start initiates one batch of at most 10 eligible jobs, but that batch is
+not awaited by the request and is not guaranteed to finish. It can also run before
+the incoming request queues its new emails. Warm requests do not call `start()`
+again, so neither the next request nor additional traffic guarantees queue progress.
+Retries, expired-lease recovery, and retention cleanup depend on processing actually
+running. Interrupted jobs may remain leased for five minutes before another
+processor can claim them.
+
+Business transactions still save their email jobs. Resend callbacks track messages
+submitted to Resend; they cannot initiate sending jobs that never reached Resend.
+Monitor pending/dead jobs and use the authenticated admin processing/retry actions
+if necessary. Manual processing is also subject to the function execution limit.
+Use an always-on worker or a durable trigger before requiring timely, automatic
+delivery. Deployment and cold-start/warm-instance behavior must still be verified
+on the hosted API; a successful build is not deployment certification.
+
+See [hosting and environment management](PRODUCTION_ROLLOUT.md#database-and-hosting)
+for the deployment settings and CLI/GitHub Actions options.
 
 `ADMIN_NOTIFICATION_EMAIL` selects the admin alert inbox independently of support,
 Clerk login, and the sender. Restart the API after changing it. Existing frozen

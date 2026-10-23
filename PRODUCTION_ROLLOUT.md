@@ -36,19 +36,24 @@ that never visits the app. Clerk sends identity verification email separately.
 Pending/declined templates exclude contact details; accepted templates show each
 participant only the other's contacts, and admin both. No marketing mail is added.
 
-- The Nest API starts delivery automatically after listening. No cron or separate
-  worker command is required. It checks again five seconds after each completed batch,
-  leases 10 jobs for five minutes, delivers concurrently, uses an eight-second
-  provider timeout, retries with exponential backoff, and marks dead after eight attempts.
-- Unique event keys prevent duplicate queue records. Brevo receives the job ID as
-  idempotency key. Delivery is **at least once**, not proven exactly once after a
-  send-before-ack crash. Provider acceptance is not proof of inbox delivery.
-- `/admin` shows the oldest 100 unsent jobs and offers process/retry. API:
+- On a continuously running host, the Nest API starts delivery after listening
+  and checks again five seconds after each completed batch. It leases 10 jobs for
+  five minutes, sends serially with 600ms spacing, and uses a ten-second provider
+  timeout. Retryable failures use backoff; permanent failures or exhausted attempts
+  become dead jobs, with an eight-attempt ceiling. See the Vercel exception below.
+- Unique event keys prevent duplicate queue records. Resend receives
+  `moreli/<outbox-id>` as the idempotency key, with the first rendered message
+  persisted for retries. Delivery is not proven exactly once after a send-before-ack
+  crash, and eventual submission depends on a processor running. Provider acceptance
+  is not proof of inbox delivery.
+- The delivery API lists the latest 100 jobs; `/admin` offers process/retry. API:
   `GET /api/admin/email-delivery`, `POST /api/admin/email-delivery/process`,
   `POST /api/admin/email-delivery/:id/retry`. All require DB admin role.
-- Alert on dead jobs, delivery-loop failures, and pending age over five minutes. The bounded
-  UI list is not a complete queue metric. Inspect Brevo suppressions/bounces directly;
-  provider delivery/bounce/complaint webhooks are not yet implemented.
+- Monitor dead jobs, delivery-loop failures, and pending age. The bounded UI list
+  is not a complete queue metric. `POST /api/webhooks/resend` verifies signatures,
+  records provider delivery events, and suppresses bounced/complaining recipients.
+  Configure this URL and the signing secret in Resend; callbacks cannot send jobs
+  that were never submitted to the provider.
 - Worker purges sent/dead jobs older than 30 days. Provider logs/inboxes have
   independent retention. Retry dead jobs before that deadline.
 - Never run a staging worker against production data or send test jobs to real users.
@@ -61,17 +66,41 @@ audit/reasons and inquiry consent timestamp. Existing consent remains null; do n
 invent historic consent. Never edit an applied migration or reset hosted production.
 Active catalogs are 952 professions and 1,174 cities; upserts preserve IDs/coordinates.
 
-1. Host `backend` as a continuously running Node 24.x service. Use `npm ci`,
-  `npm run build`, and `npm run start:prod` with the committed lockfile.
-2. Automatic email delivery runs in the API process; configure restart-on-failure
-  and health monitoring. No cron secret or external scheduler is needed.
-3. [vercel.json](vercel.json) remains a serverless scaffold with no cron. Serverless
-  background timers are not reliable, so that scaffold alone is not a supported
-  deployment for this delivery architecture. The client may still use Vercel.
-4. Configure the runtime variables below directly in the deployment secret store.
+1. The existing Git layout is two separate repositories, one for the backend and
+   one for the client. Connect each to its own Vercel project, using that repository's
+   root and existing configuration. Use Node 24.x, `npm ci`, and `npm run build`;
+   the client publishes `dist`. An always-on backend alternatively runs
+   `npm run start:prod` after building.
+   The backend uses Vercel's native NestJS preset, which discovers `src/main.ts`;
+   it does not need an `api` wrapper or rewrite. Do not add a `functions` override
+   targeting `src/main.ts`: that override failed Vercel's function-pattern matching
+   during deployment. Function duration now uses the platform/project default
+   instead of the removed 60-second override. Leave the backend Output Directory
+   unset rather than treating `dist` as a static website.
+2. **Accepted MVP limitation (2026-10-23):** keep the existing in-process email
+   runner on Vercel, without a cron or new request-bound sending path. Email
+   processing is best effort, with unbounded delays and possible manual recovery.
+   This does not establish production delivery reliability.
+3. [vercel.json](vercel.json) has no cron. A cold application start initiates one
+   batch, but requests do not await it and completion is not guaranteed. Warm
+   requests reuse the application and do not restart the runner. A startup batch
+   may run before the current request enqueues email. Therefore, traffic or a
+   future request alone does not guarantee sending pending jobs. Retries, five-minute
+   lease recovery, and retention cleanup also require an active processing run.
+   Monitor the queue and use authenticated admin process/retry actions if needed;
+   those requests remain subject to function timeouts. Use an always-on worker or
+   a durable trigger when timely automatic delivery becomes a requirement.
+4. Configure the runtime variables below in Vercel's secret store, through the
+   dashboard, CLI, or API. GitHub secrets alone are not injected by Git integration.
 5. Deploy staging with separate Supabase/Clerk first; verify API routing,
-   automatic delivery, CORS, and inbox receipt before promoting. No Vercel project,
-   Git commit, or live deployment was created in this task.
+   cold/warm email behavior, manual recovery, CORS, and inbox receipt before
+   promoting. The Vercel deployment has not been verified here.
+
+Native NestJS references: [Vercel framework guide](https://vercel.com/docs/frameworks/backend/nestjs),
+[official example](https://github.com/vercel/vercel/tree/main/examples/nestjs),
+and [official entrypoint discovery](https://github.com/vercel/vercel/blob/main/packages/nestjs/src/build.ts).
+The guide was unreachable during this investigation; entrypoint support and the
+example layout were verified against Vercel's public source.
 
 | Runtime variable | Production requirement |
 | --- | --- |
@@ -81,7 +110,8 @@ Active catalogs are 952 professions and 1,174 cities; upserts preserve IDs/coord
 | `CLERK_ISSUER`, `CLERK_SECRET_KEY` | Production issuer and matching `sk_live_...`; no `*.accounts.dev` |
 | `PUBLIC_APP_URL`, `CORS_ORIGIN` | Matching exact HTTPS client origin(s) |
 | `TRUST_PROXY` | `true` only behind a trusted reverse proxy |
-| `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Transactional key and verified sender/name |
+| `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | Server-only transactional key and verified sender/name |
+| `RESEND_WEBHOOK_SECRET` | Signing secret for the registered Resend webhook endpoint |
 | `ADMIN_NOTIFICATION_EMAIL` | Monitored admin inbox; defaults to Erik's configured address |
 | `EMAIL_APPROVAL_SECRET` | Independent random 32+ characters for legacy approval links |
 | `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX` | Defaults 60000 ms / 120 requests |
@@ -89,6 +119,51 @@ Active catalogs are 952 professions and 1,174 cities; upserts preserve IDs/coord
 Clerk profile sync now needs `CLERK_SECRET_KEY` locally too. Production validation
 rejects development URLs/keys, missing secrets, and inconsistent CORS. Keep
 provisioning PATs/passwords out of runtime and every server secret out of `VITE_*`.
+
+### Environment Management Without Dashboard Entry
+
+Environment values must reach the correct Vercel project and deployment target
+(`production`, `preview`, or `development`). The client needs build-time
+`VITE_API_URL` and `VITE_CLERK_PUBLISHABLE_KEY`; the backend needs the runtime
+variables above. `VITE_*` values are public browser-bundle content, not secrets.
+Create a new deployment after changing project environment values.
+
+- **Vercel CLI:** link each repository to its corresponding project with
+  `npx vercel link`. `npx vercel env add NAME production` adds a project variable;
+  it can read its value from standard input for scripted provisioning. For example,
+  in PowerShell, with a secret already securely loaded into the process environment:
+
+  ```powershell
+  $env:RESEND_API_KEY | npx vercel env add RESEND_API_KEY production
+  ```
+
+  Repeat for the required variables and targets. Use the CLI's update command
+  for existing values; do not print secrets or embed literal values in commands.
+  The ignored `.vercel` directory contains local project linkage/environment files.
+
+- **Vercel REST API:** a provisioning script can create/update project environment
+  variables using a Vercel token. Keep the token and variable values in a secret
+  manager or CI secret store, never in source control.
+
+- **GitHub Actions:** repository/environment secrets are available to explicitly
+  authorized workflows, not automatically to Vercel's Git deployment integration.
+  A workflow can provision Vercel environment variables using the CLI/API or
+  explicitly supply build/runtime values through a CLI deployment. Store a
+  least-privilege `VERCEL_TOKEN` plus the project identifiers and required secrets
+  in the appropriate GitHub repository/environment. Use protected environments
+  for production, pass secrets through process environment/stdin, disable shell
+  tracing, and do not send production secrets to untrusted pull-request workflows.
+  Ensure provisioning finishes before triggering deployment; a Git-triggered
+  deployment can otherwise start with old/missing values.
+
+No environment-sync workflow or live secret provisioning was added by this
+documentation update. Exact current CLI/API options should be confirmed against
+the official documentation before scripting; Vercel documentation was unreachable
+from this environment during this review.
+
+References: [Vercel CLI environment management](https://vercel.com/docs/cli/env),
+[project environment API](https://vercel.com/docs/rest-api/reference/endpoints/projects/create-one-or-more-environment-variables),
+and [GitHub Actions secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
 
 ### Remaining Public-Launch Gates
 

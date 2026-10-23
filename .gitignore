@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.vercel/
 supabase/.branches/
 supabase/.temp/
 .env
