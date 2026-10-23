@@ -98,6 +98,11 @@ origins also restrict the Clerk token's authorized party. Redeploy the backend
 after updating its environment; `/api/health` must succeed before integration
 is considered working.
 
+Invalid production URL errors identify the affected environment variable names
+without logging their values. If the dashboard shows valid values but startup
+still fails, check the current backend Production deployment: environment edits
+do not update existing deployments, and changing a local template has no effect.
+
 ### Clerk Production Configuration
 
 Create a production instance in the [Clerk Dashboard](https://dashboard.clerk.com)

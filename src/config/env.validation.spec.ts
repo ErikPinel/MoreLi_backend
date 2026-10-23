@@ -61,6 +61,45 @@ describe('production environment', () => {
       CLERK_ALLOW_DEVELOPMENT_INSTANCE: true,
     }).error).toBeUndefined();
   });
+  it('accepts the reported deployment URLs including the trailing Supabase slash', () => {
+    expect(envValidationSchema.validate({
+      ...initialDeployment,
+      SUPABASE_URL: 'https://whzrmgntqsinkxfqymqz.supabase.co/',
+    }).error).toBeUndefined();
+  });
+  it.each([
+    { name: 'PUBLIC_APP_URL', value: 'http://localhost:5173' },
+    { name: 'SUPABASE_URL', value: 'https://user:private-fixture-value@example.supabase.co' },
+    { name: 'CORS_ORIGIN', value: 'https://moreli-client.vercel.app,http://localhost:5173' },
+  ])('identifies invalid URL field $name without exposing its value', ({ name, value }) => {
+    const { error } = envValidationSchema.validate({
+      ...initialDeployment,
+      [name]: value,
+    });
+
+    expect(error?.message).toBe(`Production requires public HTTPS URLs for: ${name}`);
+    expect(error?.message).not.toContain(value);
+    expect(error?.message).not.toContain('private-fixture-value');
+  });
+  it('identifies every invalid public URL field in one error', () => {
+    const { error } = envValidationSchema.validate({
+      ...initialDeployment,
+      PUBLIC_APP_URL: 'http://localhost:5173',
+      SUPABASE_URL: 'http://example.supabase.co',
+      CORS_ORIGIN: 'http://localhost:5173',
+    });
+
+    expect(error?.message).toBe('Production requires public HTTPS URLs for: PUBLIC_APP_URL, SUPABASE_URL, CORS_ORIGIN');
+  });
+  it('identifies missing settings that fall back to local development URLs', () => {
+    const { error } = envValidationSchema.validate({
+      ...initialDeployment,
+      PUBLIC_APP_URL: undefined,
+      CORS_ORIGIN: undefined,
+    });
+
+    expect(error?.message).toBe('Production requires public HTTPS URLs for: PUBLIC_APP_URL, CORS_ORIGIN');
+  });
   it.each([
     { CLERK_SECRET_KEY: 'sk_live_fixture' },
     { CLERK_ISSUER: 'https://clerk.example.com' },

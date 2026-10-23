@@ -76,10 +76,16 @@ export const envValidationSchema = Joi.object({
   if (environment.RESEND_FROM_EMAIL?.endsWith('@resend.dev')) {
     return helpers.message({ custom: 'Production requires your own verified Resend sender domain, not the test sender' });
   }
-  const urls = [environment.PUBLIC_APP_URL, environment.SUPABASE_URL,
-    ...environment.CORS_ORIGIN.split(',').map((origin: string) => origin.trim())];
-  if (urls.some((value: string) => !isPublicHttpsUrl(value))) {
-    return helpers.message({ custom: 'Production requires public HTTPS application, Supabase, and CORS URLs' });
+  const publicUrls: Record<string, string[]> = {
+    PUBLIC_APP_URL: [environment.PUBLIC_APP_URL],
+    SUPABASE_URL: [environment.SUPABASE_URL],
+    CORS_ORIGIN: environment.CORS_ORIGIN.split(',').map((origin: string) => origin.trim()),
+  };
+  const invalidSettings = Object.entries(publicUrls)
+    .filter(([, urls]) => urls.some((value) => !isPublicHttpsUrl(value)))
+    .map(([name]) => name);
+  if (invalidSettings.length > 0) {
+    return helpers.message({ custom: `Production requires public HTTPS URLs for: ${invalidSettings.join(', ')}` });
   }
   if (!isPublicHttpsUrl(environment.CLERK_ISSUER, environment.CLERK_ALLOW_DEVELOPMENT_INSTANCE)) {
     return helpers.message({ custom: 'Production requires a public HTTPS Clerk issuer; development issuers require CLERK_ALLOW_DEVELOPMENT_INSTANCE=true' });
