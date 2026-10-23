@@ -95,6 +95,29 @@ Runtime hardening includes Helmet headers, request IDs, global rate limiting,
 structured HTTP logs, validated DTOs/environment values, database health
 checks, CORS allowlisting, and graceful shutdown hooks.
 
+### Vercel Build Preflight
+
+`npm run build` checks Nest compilation, but Vercel also performs its own
+TypeScript/function-packaging step. Before deploying, authenticate with
+`npx vercel@65.1.0 login` and link this repository to the existing backend project
+with `npx vercel@65.1.0 link`. Then run:
+
+```powershell
+npx --yes vercel@65.1.0 pull --yes --environment=production
+npx --yes vercel@65.1.0 build --prod
+```
+
+Use the CLI version shown in the deployment logs; 65.1.0 is the version used for
+this investigation. These commands require working Vercel connectivity and
+authentication. Pull downloads project settings and environment values into the
+ignored `.vercel` directory; never log or commit those values. Build creates local
+deployment output, not a live deployment. A successful local build still does not
+prove hosted API behavior.
+
+The middleware setup uses express-rate-limit's named export and Helmet's typed
+CommonJS default export. This preserves the existing middleware behavior while
+avoiding callable-default errors in Vercel's NodeNext module-resolution pass.
+
 ### Automatic Email Delivery
 
 Starting the API with `npm run start:dev` or `npm run start:prod` also starts email

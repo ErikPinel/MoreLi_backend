@@ -8,6 +8,9 @@ import { configureApp } from './app.setup.js';
 class LimitedController {
   @Get('limited')
   get() { return { ok: true }; }
+
+  @Get('health')
+  health() { return { ok: true }; }
 }
 
 describe('Browser-readable rate limiting', () => {
@@ -19,6 +22,20 @@ describe('Browser-readable rate limiting', () => {
     await app.init();
   });
   afterEach(async () => { await app.close(); });
+
+  it('retains Helmet security headers', async () => {
+    await request(app.getHttpServer()).get('/api/limited').expect(200)
+      .expect('X-Content-Type-Options', 'nosniff')
+      .expect('X-Frame-Options', 'SAMEORIGIN')
+      .expect('Content-Security-Policy', /default-src 'self'/);
+  });
+
+  it('excludes health requests from the rate limit', async () => {
+    await request(app.getHttpServer()).get('/api/health').expect(200);
+    await request(app.getHttpServer()).get('/api/health').expect(200);
+    await request(app.getHttpServer()).get('/api/limited').expect(200);
+    await request(app.getHttpServer()).get('/api/limited').expect(429);
+  });
 
   it('retains CORS and retry-after headers when the request limit is exceeded', async () => {
     await request(app.getHttpServer()).get('/api/limited').set('Origin', 'https://client.example').expect(200);
