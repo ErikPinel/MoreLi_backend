@@ -58,7 +58,7 @@ export const envValidationSchema = Joi.object({
   }),
   RESEND_FROM_NAME: Joi.string().max(70).pattern(/^[^<>\r\n]+$/).default('MoreLi'),
   RESEND_WEBHOOK_SECRET: Joi.string().min(20).when('NODE_ENV', { is: 'production', then: Joi.required(), otherwise: Joi.string().allow('').optional() }),
-  SUPPORT_EMAIL: Joi.string().email().default('erik.zusin@gmail.com'),
+  SUPPORT_EMAIL: Joi.string().email().default('morehlisrael@gmail.com'),
   SUPPORT_PHONE: Joi.string().pattern(/^0\d{8,9}$/).default('0503939008'),
   ADMIN_NOTIFICATION_EMAIL: Joi.string()
     .email()

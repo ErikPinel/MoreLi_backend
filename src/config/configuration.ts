@@ -31,6 +31,6 @@ export default () => ({
     testRecipientEmail: process.env.RESEND_TEST_RECIPIENT_EMAIL,
     approvalSecret: process.env.EMAIL_APPROVAL_SECRET,
   },
-  support: { email: process.env.SUPPORT_EMAIL ?? 'erik.zusin@gmail.com', phone: process.env.SUPPORT_PHONE ?? '0503939008' },
+  support: { email: process.env.SUPPORT_EMAIL ?? 'morehlisrael@gmail.com', phone: process.env.SUPPORT_PHONE ?? '0503939008' },
   publicAppUrl: process.env.PUBLIC_APP_URL ?? 'http://localhost:5173',
 });

@@ -110,7 +110,7 @@ example layout were verified against Vercel's public source.
 | `CLERK_ISSUER`, `CLERK_SECRET_KEY` | Production issuer and `sk_live_...`, or development `*.accounts.dev` issuer and `sk_test_...` with the explicit MVP opt-in |
 | `CLERK_ALLOW_DEVELOPMENT_INSTANCE` | Defaults `false`; set `true` only for the initial hosted MVP using the existing development instance |
 | `PUBLIC_APP_URL`, `CORS_ORIGIN` | Matching exact HTTPS client origin(s) |
-| `TRUST_PROXY` | `true` only behind a trusted reverse proxy |
+| `TRUST_PROXY` | `true` on Vercel (one trusted proxy hop); `false` for direct local access |
 | `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME` | Server-only transactional key and verified sender/name |
 | `RESEND_WEBHOOK_SECRET` | Signing secret for the registered Resend webhook endpoint |
 | `ADMIN_NOTIFICATION_EMAIL` | Monitored admin inbox; defaults to Erik's configured address |

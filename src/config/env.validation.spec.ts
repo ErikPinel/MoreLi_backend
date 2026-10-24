@@ -27,6 +27,17 @@ const initialDeployment = {
 };
 
 describe('production environment', () => {
+  it('uses the public business support email by default and preserves explicit overrides', () => {
+    vi.stubEnv('SUPPORT_EMAIL', undefined);
+    try {
+      expect(configuration().support.email).toBe('morehlisrael@gmail.com');
+      expect(envValidationSchema.validate(production).value.SUPPORT_EMAIL).toBe('morehlisrael@gmail.com');
+      vi.stubEnv('SUPPORT_EMAIL', 'support@example.com');
+      expect(configuration().support.email).toBe('support@example.com');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('defaults to API port 5146 and respects explicit port overrides', () => {
     vi.stubEnv('PORT', undefined);
     try {

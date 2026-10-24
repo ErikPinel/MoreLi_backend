@@ -24,6 +24,7 @@ import { UsersModule } from './users/users.module.js';
 import { AccessModule } from './access/access.module.js';
 import { SupportModule } from './support/support.module.js';
 import { LessonsModule } from './lessons/lessons.module.js';
+import { SeoModule } from './seo/seo.module.js';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { LessonsModule } from './lessons/lessons.module.js';
     HealthModule,
     ReviewsModule,
     StorageModule,
+    SeoModule,
   ],
   controllers: [AppController],
   providers: [AppService],

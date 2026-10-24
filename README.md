@@ -1,5 +1,26 @@
 # Morali backend
 
+## Single Public Sitemap
+
+`GET /api/seo/sitemap.xml` is an anonymous XML `urlset` containing the canonical
+public pages and published tutor URLs on `https://morehli.co.il`. The client
+exposes it at `/sitemap.xml`, before static filesystem routing. There is no sitemap
+index or separate teacher/page sitemap. Deploy this endpoint before the client.
+Keep `PUBLIC_PAGE_PATHS` in the SEO service in sync with the client's public
+sitemap manifest and page metadata.
+
+Only `published` teacher profiles are queried, using stable ID pagination in
+500-row batches; no contact records, drafts or private account URLs are exported.
+Slugs are URL-encoded and no unreliable `lastmod` dates are fabricated. Responses
+may be CDN-cached for five minutes. Database errors are surfaced instead of
+returning an empty or partial successful sitemap. The protocol's 50,000-URL limit
+includes both public pages and tutors; exceeding it explicitly fails with 503.
+
+Public business support defaults to `morehlisrael@gmail.com` / `0503939008`.
+Update existing `SUPPORT_EMAIL`/`SUPPORT_PHONE` production overrides accordingly.
+Admin notification recipients and the verified Resend sender are separate settings
+and are not changed by public contact updates.
+
 Current manual-access product scope, outbox operations, deployment configuration, verified
 tests, and remaining gates are in [PRODUCTION_ROLLOUT.md](PRODUCTION_ROLLOUT.md)
 and [the governing plan](../PRODUCTION_MVP_PLAN.md). Public launch is not yet certified.
@@ -51,7 +72,7 @@ Create `.env` from `.env.example` and set:
 | --- | --- |
 | `PORT` | HTTP port, default `5146` |
 | `CORS_ORIGIN` | Comma-separated allowed React origins |
-| `TRUST_PROXY` | Set `true` behind a trusted reverse proxy |
+| `TRUST_PROXY` | Set `true` on Vercel or behind one trusted reverse proxy; keep `false` for direct local access |
 | `RATE_LIMIT_WINDOW_MS` | Global rate-limit window |
 | `RATE_LIMIT_MAX` | Requests allowed per IP/window |
 | `CLERK_ISSUER` | Trusted Clerk JWT issuer |
@@ -65,7 +86,7 @@ Create `.env` from `.env.example` and set:
 | `RESEND_FROM_EMAIL` | Sender on your own verified Resend domain; required in production |
 | `RESEND_FROM_NAME` | Transactional sender display name, default MoreLi |
 | `RESEND_WEBHOOK_SECRET` | Resend signing secret for verified delivery receipts; required in production |
-| `SUPPORT_EMAIL`, `SUPPORT_PHONE` | Public support/Bit contact; defaults erik.zusin@gmail.com and 0503939008 |
+| `SUPPORT_EMAIL`, `SUPPORT_PHONE` | Public support/Bit contact; defaults morehlisrael@gmail.com and 0503939008. Update existing production overrides when changing public contact details. |
 | `ADMIN_NOTIFICATION_EMAIL` | Recipient for tutor-review notices |
 | `EMAIL_APPROVAL_SECRET` | Random 32+ character secret used to sign expiring approval links |
 
@@ -86,6 +107,7 @@ For the stable frontend deployment, set these backend Vercel runtime variables:
 ```dotenv
 PUBLIC_APP_URL=https://moreli-client.vercel.app
 CORS_ORIGIN=https://moreli-client.vercel.app
+TRUST_PROXY=true
 CLERK_ISSUER=https://noted-caribou-6267.clerk.accounts.dev
 CLERK_ALLOW_DEVELOPMENT_INSTANCE=true
 ```
@@ -97,6 +119,15 @@ control. Use the stable frontend URL, not an individual deployment URL: allowed
 origins also restrict the Clerk token's authorized party. Redeploy the backend
 after updating its environment; `/api/health` must succeed before integration
 is considered working.
+
+On Vercel, `TRUST_PROXY=true` configures Express to trust exactly one proxy hop,
+not every forwarded address. This lets the rate limiter use the client address
+from `X-Forwarded-For` rather than sharing an allowance across the proxy's users.
+It also resolves the `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` and
+`ERR_ERL_FORWARDED_HEADER` diagnostics when both proxy headers are present.
+Keep it `false` on a directly exposed server; a different proxy topology needs
+its own trust configuration. Rate-limit counters remain per application instance,
+not shared across Vercel instances.
 
 Invalid production URL errors identify the affected environment variable names
 without logging their values. If the dashboard shows valid values but startup

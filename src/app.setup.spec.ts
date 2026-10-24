@@ -13,13 +13,18 @@ class LimitedController {
   health() { return { ok: true }; }
 }
 
+async function createLimitedApp(trustProxy: boolean): Promise<INestApplication> {
+  const module = await Test.createTestingModule({ controllers: [LimitedController] }).compile();
+  const app = module.createNestApplication();
+  configureApp(app, new ConfigService({ app: { trustProxy, corsOrigins: ['https://client.example'], rateLimitWindowMs: 60000, rateLimitMax: 1 } }));
+  await app.init();
+  return app;
+}
+
 describe('Browser-readable rate limiting', () => {
   let app: INestApplication;
   beforeEach(async () => {
-    const module = await Test.createTestingModule({ controllers: [LimitedController] }).compile();
-    app = module.createNestApplication();
-    configureApp(app, new ConfigService({ app: { trustProxy: false, corsOrigins: ['https://client.example'], rateLimitWindowMs: 60000, rateLimitMax: 1 } }));
-    await app.init();
+    app = await createLimitedApp(false);
   });
   afterEach(async () => { await app.close(); });
 
@@ -48,5 +53,44 @@ describe('Browser-readable rate limiting', () => {
     await request(app.getHttpServer()).options('/api/limited').set('Origin', 'https://client.example')
       .set('Access-Control-Request-Method', 'GET').expect(204);
     await request(app.getHttpServer()).get('/api/limited').set('Origin', 'https://client.example').expect(200);
+  });
+});
+
+describe('Rate limiting behind one trusted proxy', () => {
+  let app: INestApplication;
+  beforeEach(async () => {
+    app = await createLimitedApp(true);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await app.close();
+  });
+
+  it('accepts both proxy headers without logging validation errors', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(app.getHttpAdapter().getInstance().get('trust proxy')).toBe(1);
+    await request(app.getHttpServer()).get('/api/limited')
+      .set('X-Forwarded-For', '198.51.100.1')
+      .set('Forwarded', 'for=198.51.100.1;proto=https')
+      .expect(200);
+
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it('keeps separate request allowances for different forwarded clients', async () => {
+    await request(app.getHttpServer()).get('/api/limited')
+      .set('X-Forwarded-For', '198.51.100.1').expect(200);
+    await request(app.getHttpServer()).get('/api/limited')
+      .set('X-Forwarded-For', '198.51.100.1').expect(429);
+    await request(app.getHttpServer()).get('/api/limited')
+      .set('X-Forwarded-For', '198.51.100.2').expect(200);
+  });
+
+  it('does not let an extra untrusted forwarded address reset the allowance', async () => {
+    await request(app.getHttpServer()).get('/api/limited')
+      .set('X-Forwarded-For', '203.0.113.1, 198.51.100.1').expect(200);
+    await request(app.getHttpServer()).get('/api/limited')
+      .set('X-Forwarded-For', '203.0.113.2, 198.51.100.1').expect(429);
   });
 });
